@@ -954,6 +954,11 @@ export class BrowserConnector {
       const requestId = Date.now().toString();
       console.log("Browser Connector: Generated requestId:", requestId);
 
+      const clientPath = req.body?.path;
+      if (clientPath) {
+        console.log("Browser Connector: Client provided path:", clientPath);
+      }
+
       // Create promise that will resolve when we get the screenshot data
       const screenshotPromise = new Promise<{
         data: string;
@@ -990,6 +995,7 @@ export class BrowserConnector {
       const message = JSON.stringify({
         type: "take-screenshot",
         requestId: requestId,
+        ...(clientPath ? { path: clientPath } : {}),
       });
       console.log(
         `Browser Connector: Sending WebSocket message to extension:`,
@@ -1001,26 +1007,18 @@ export class BrowserConnector {
       console.log("Browser Connector: Waiting for screenshot data...");
       const {
         data: base64Data,
-        path: customPath,
+        path: customPathFromExt,
         autoPaste,
       } = await screenshotPromise;
       console.log("Browser Connector: Received screenshot data, saving...");
-      console.log("Browser Connector: Custom path from extension:", customPath);
+      console.log("Browser Connector: Custom path from extension:", customPathFromExt);
       console.log("Browser Connector: Auto-paste setting:", autoPaste);
 
-      // Always prioritize the path from the Chrome extension
-      let targetPath = customPath;
+      // Determine target path prioritizing: extension path > client path > settings/default
+      let targetPath =
+        customPathFromExt || clientPath || currentSettings.screenshotPath || getDefaultDownloadsFolder();
 
-      // If no path provided by extension, fall back to defaults
-      if (!targetPath) {
-        targetPath =
-          currentSettings.screenshotPath || getDefaultDownloadsFolder();
-      }
-
-      // Convert the path for the current platform
-      targetPath = convertPathForCurrentPlatform(targetPath);
-
-      console.log(`Browser Connector: Using path: ${targetPath}`);
+      console.log("Browser Connector: Resolved target path:", targetPath);
 
       if (!base64Data) {
         throw new Error("No screenshot data received from Chrome extension");
