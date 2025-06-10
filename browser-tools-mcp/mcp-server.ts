@@ -127,7 +127,7 @@ server.tool(
           content: [
             {
               type: "text",
-              text: "Successfully saved screenshot",
+              text: `Successfully saved screenshot to ${result.path}`,
             },
           ],
         };

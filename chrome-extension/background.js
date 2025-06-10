@@ -79,3 +79,112 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Required to use sendResponse asynchronously
   }
 });
+
+// ----------------------------
+// New: WebSocket handler to accept remote screenshot commands even when DevTools is closed
+// ----------------------------
+
+const WS_URL = "ws://localhost:3025/extension-ws";
+let bgWs = null;
+let bgWsReconnectTimeout = null;
+const BG_WS_RECONNECT_DELAY = 5000; // 5 seconds
+
+function setupBackgroundWebSocket() {
+  if (bgWs) {
+    try {
+      bgWs.close();
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  bgWs = new WebSocket(WS_URL);
+
+  bgWs.onopen = () => {
+    console.log("Background WS connected");
+    if (bgWsReconnectTimeout) {
+      clearTimeout(bgWsReconnectTimeout);
+      bgWsReconnectTimeout = null;
+    }
+  };
+
+  bgWs.onmessage = (event) => {
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch (e) {
+      console.error("Background WS received invalid JSON", e);
+      return;
+    }
+
+    if (message.type === "take-screenshot") {
+      handleBackgroundScreenshot(message);
+    }
+  };
+
+  bgWs.onclose = () => {
+    console.log("Background WS disconnected, retrying in 5s...");
+    bgWsReconnectTimeout = setTimeout(setupBackgroundWebSocket, BG_WS_RECONNECT_DELAY);
+  };
+
+  bgWs.onerror = (err) => {
+    console.error("Background WS error", err);
+  };
+}
+
+function handleBackgroundScreenshot(message) {
+  // Step 1: find the real page tab (ignore devtools://, chrome://, etc.)
+  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+    if (chrome.runtime.lastError) {
+      bgWs.send(
+        JSON.stringify({
+          type: "screenshot-error",
+          error: chrome.runtime.lastError.message,
+          requestId: message.requestId,
+        })
+      );
+      return;
+    }
+
+    const targetTab = tabs.find((t) => /^(https?|file):\/\//.test(t.url));
+
+    if (!targetTab) {
+      bgWs.send(
+        JSON.stringify({
+          type: "screenshot-error",
+          error: "No suitable tab found for screenshot",
+          requestId: message.requestId,
+        })
+      );
+      return;
+    }
+
+    chrome.tabs.captureVisibleTab(
+      targetTab.windowId,
+      { format: "png" },
+      (dataUrl) => {
+        if (chrome.runtime.lastError) {
+          bgWs.send(
+            JSON.stringify({
+              type: "screenshot-error",
+              error: chrome.runtime.lastError.message,
+              requestId: message.requestId,
+            })
+          );
+          return;
+        }
+
+        bgWs.send(
+          JSON.stringify({
+            type: "screenshot-data",
+            data: dataUrl,
+            requestId: message.requestId,
+          })
+        );
+      }
+    );
+  });
+}
+
+// Initialize WebSocket connection when the service worker starts
+setupBackgroundWebSocket();

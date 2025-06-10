@@ -538,39 +538,69 @@ function setupWebSocket() {
 
       if (message.type === "take-screenshot") {
         console.log("Chrome Extension: Taking screenshot...");
-        // Capture screenshot of the current tab
-        chrome.tabs.captureVisibleTab(null, { format: "png" }, (dataUrl) => {
-          if (chrome.runtime.lastError) {
+        // Capture screenshot of the inspected page tab (not the DevTools window)
+        chrome.tabs.get(currentTabId, (tab) => {
+          if (chrome.runtime.lastError || !tab) {
             console.error(
-              "Chrome Extension: Screenshot capture failed:",
+              "Chrome Extension: Unable to locate inspected tab:",
               chrome.runtime.lastError
             );
             ws.send(
               JSON.stringify({
                 type: "screenshot-error",
-                error: chrome.runtime.lastError.message,
+                error:
+                  (chrome.runtime.lastError &&
+                    chrome.runtime.lastError.message) ||
+                  "Inspected tab not found",
                 requestId: message.requestId,
               })
             );
             return;
           }
 
-          console.log("Chrome Extension: Screenshot captured successfully");
-          // Just send the screenshot data, let the server handle paths
-          const response = {
-            type: "screenshot-data",
-            data: dataUrl,
-            requestId: message.requestId,
-            // Only include path if it's configured in settings
-            ...(settings.screenshotPath && { path: settings.screenshotPath }),
-          };
+          // Use the window containing the inspected tab to avoid devtools:// capture errors
+          chrome.tabs.captureVisibleTab(
+            tab.windowId,
+            { format: "png" },
+            (dataUrl) => {
+              if (chrome.runtime.lastError) {
+                console.error(
+                  "Chrome Extension: Screenshot capture failed:",
+                  chrome.runtime.lastError
+                );
+                ws.send(
+                  JSON.stringify({
+                    type: "screenshot-error",
+                    error: chrome.runtime.lastError.message,
+                    requestId: message.requestId,
+                  })
+                );
+                return;
+              }
 
-          console.log("Chrome Extension: Sending screenshot data response", {
-            ...response,
-            data: "[base64 data]",
-          });
+              console.log(
+                "Chrome Extension: Screenshot captured successfully"
+              );
 
-          ws.send(JSON.stringify(response));
+              // Just send the screenshot data, let the server handle paths
+              const response = {
+                type: "screenshot-data",
+                data: dataUrl,
+                requestId: message.requestId,
+                // Only include path if it's configured in settings
+                ...(settings.screenshotPath && {
+                  path: settings.screenshotPath,
+                }),
+              };
+
+              console.log(
+                "Chrome Extension: Sending screenshot data response",
+                { ...response, data: "[base64 data]" }
+              );
+
+              ws.send(JSON.stringify(response));
+            }
+          );
         });
       }
     } catch (error) {
