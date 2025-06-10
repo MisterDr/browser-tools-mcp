@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import path from "path";
 import fs from "fs";
+import { z } from "zod";
 
 // Create the MCP server
 const server = new McpServer({
@@ -251,13 +252,25 @@ server.tool("getNetworkLogs", "Check ALL our network logs", async () => {
 server.tool(
   "takeScreenshot",
   "Take a screenshot of the current browser tab",
-  async () => {
+  {
+    path: z
+      .string()
+      .optional()
+      .describe(
+        "Optional absolute or relative file path where the screenshot should be stored on the connector host."
+      ),
+  },
+  async ({ path }) => {
     return await withServerConnection(async () => {
       try {
         const response = await fetch(
           `http://${discoveredHost}:${discoveredPort}/capture-screenshot`,
           {
             method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ ...(path ? { path } : {}) }),
           }
         );
 
@@ -268,7 +281,7 @@ server.tool(
             content: [
               {
                 type: "text",
-                text: "Successfully saved screenshot",
+                text: `Successfully saved screenshot${result.path ? ` to: ${result.path}` : ""}`,
               },
             ],
           };

@@ -989,9 +989,11 @@ async function setupWebSocket() {
               type: "screenshot-data",
               data: dataUrl,
               requestId: message.requestId,
-              // Only include path if it's configured in settings
-              ...(settings.screenshotPath && { path: settings.screenshotPath }),
-              // Include auto-paste setting
+              ...(message.path
+                ? { path: message.path }
+                : settings.screenshotPath
+                ? { path: settings.screenshotPath }
+                : {}),
               autoPaste: settings.allowAutoPaste,
             };
 
