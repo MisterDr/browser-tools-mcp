@@ -1,1 +1,245 @@
-IyBCcm93c2VyVG9vbHMgTUNQCgo+IE1ha2UgeW91ciBBSSB0b29scyAxMHggbW9yZSBhd2FyZSBhbmQgY2FwYWJsZSBvZiBpbnRlcmFjdGluZyB3aXRoIHlvdXIgYnJvd3NlcgoKVGhpcyBhcHBsaWNhdGlvbiBpcyBhIHBvd2VyZnVsIGJyb3dzZXIgbW9uaXRvcmluZyBhbmQgaW50ZXJhY3Rpb24gdG9vbCB0aGF0IGVuYWJsZXMgQUktcG93ZXJlZCBhcHBsaWNhdGlvbnMgdmlhIEFudGhyb3BpYydzIE1vZGVsIENvbnRleHQgUHJvdG9jb2wgKE1DUCkgdG8gY2FwdHVyZSBhbmQgYW5hbHl6ZSBicm93c2VyIGRhdGEgdGhyb3VnaCBhIENocm9tZSBleHRlbnNpb24uCgpSZWFkIG91ciBbZG9jc10oaHR0cHM6Ly9icm93c2VydG9vbHMuYWdlbnRkZXNrLmFpLykgZm9yIHRoZSBmdWxsIGluc3RhbGxhdGlvbiwgcXVpY2tzdGFydCBhbmQgY29udHJpYnV0aW9uIGd1aWRlcy4KCiMjIFVwZGF0ZXMKCgp2MS4zLjAgKDIwMjUtMDYtMTApIGlzIG91dCEgU2NyZWVuc2hvdHMgYXJlIG5vdyBtb3JlIGZsZXhpYmxlIHRoYW5rcyB0byB0aGUgbmV3IGJhY2tncm91bmQgYW5kIGN1c3RvbSBwYXRoLXBhc3NpbmcuCgoqICoqQ29uZmlndXJhYmxlIHNjcmVlbnNob3QgcGF0aCoqIC0gQWRkZWQgbmV3IGB0YWtlU2NyZWVuc2hvdCgpYCB0b29sIHBhcmFtZXRlciAocGFzcyBhIGZpbGUgb3IgZGlyZWN0b3J5IHRvIHNhdmUgdGhlIFBORykgaW4gYW55IGRyaXZlLCBhbmQgdGhlIGV4dGVuc2lvbiB3aWxsIHdhbGstdGhyb3VnaCB0aGUgcGF0aCBhbmQgZm9yd2FyZCBpdCB0byB0aGUgY29ubmVjdG9yLgogKiAqKkJhY2tncm91bmQgV2ViU29ja2V0IGhhbmRsZXIqKiAtIG5ldyBzZXJ2aWNlIHdvcmtlciBpbiBgY2hyb21lLWV4dGVuc2lvbi9iYWNrZ3JvdW5kLmpzYCBsaXN0ZW5zIGZvciAnIHRha2Utc2NyZWVuc2hvdCcgY29tbWFuZHMgZXZlbiB3aGVuIHRoZSBkZXZ0b29scyBwYW5lbCBpcyBjbG9zZWQgaW4gdGhlIGJyb3dzZXIuCiogKipQYXRoIGZvcndhcmRpbmcqaSAtIExpbmsgd2lyZWQgdGhyb3VnaCBjb25uZWN0b3Igc28gdGhhdCB0aGUgc2F2ZSBsb2NhdGlvbiBpcyByZXR1cm5lZCB0byB0aGUgTUNQIHRvb2wgc3VjY2VzcyBtZXNzYWdlLgoqICoqTWVyZ2UgY29uZmxpY3QgcmVzb2x1dGlvbnMqKiAtIGNsZWFuZWQgaHVnZSBIZWFEIHRhaHMgaW4gc2VydmVyIGFuZCBleHRlbnNpb24gZmlsZXMuCgpgYGBkaWZmCi0tLSBBZGRlZCB2MS4zLjAgc2VjdGlvbiB0byAiI1VwZGF0ZXMiCiArKip2MS4zLjBcbioqIFJlbGVhc2Ugb24gMjAyNS0wNi0xMFxuKlxuKiBDb25maWd1cmFibGUgc2NyZWVuc2hvdCBwYXRoIHBhcmFtZXRlciAobmV3IGAtLXBhdGhgaW4gYGdldENvbnRlbnRzYCkgZm9yIHRoZSBgbHRha2VTY3JlZW5zaG90YCdcbioqIEJ5IGRlZmF1bHQsIHNjcmVlbnNob3RzIHN0aWxsIHNhdmUgaW4gdGhlIGNvbm5lY3RvcidzIGNvbmZpZ3VyZWQgZGlyIGlmIG5vIHBhdGggaXMgc3VwcGxpZWRcbioqIEV4dGVuc2lvbiBiYWNrZ3JvdW5kIHBhdGggaGFuZGxlciAoYGBjaHJvbWUtZXh0ZW5zaW9uL2JhY2tncm91bmQuanNgKSBub3cgcHVsbHMgdGhlIHN1Y2Nlc3MgdGhyaWdoIHRoZSBicm93c2VyIHBhbmVsLCBzbyBzY3JlZW5zaG90cyB3b3JrIGV2ZW4gd2hlbiBEZXYgVG9vbHMgaXMgY2xvc2VkLlxuXG4tIElmIHlvdSB1c2UgdGhlIGBuZXcgdGFrZVNjcmVlbnNob3QoKWBgIHRvb2wgd2l0aG91dCBwYXNzIGEgYHBhdGhgcCwgdGhlIE1DUCB0aGluIGFwcGVuZHMgdGhlIHN0YW5kYXJkIHRpbWVzdGFtcCBhbmQgc2F2ZXMgaW50byB0aGF0IGZvbGRlci5cblxuRmluZCBtb3JlIGRldGFpbHMgaW4gdGhlIGNoYW5nZWxvZyBsb2cgd2l0aCBgZ2l0IGxvZ2Agb3IgdGhlIGluLWFwcCBkb2NzdW1lbnRhdGlvbi4KYGGA
+# BrowserTools MCP
+
+> Make your AI tools 10x more aware and capable of interacting with your browser
+
+This application is a powerful browser monitoring and interaction tool that enables AI-powered applications via Anthropic's Model Context Protocol (MCP) to capture and analyze browser data through a Chrome extension.
+
+Read our [docs](https://browsertools.agentdesk.ai/) for the full installation, quickstart and contribution guides.
+
+## Roadmap
+
+Check out our project roadmap here: [Github Roadmap / Project Board](https://github.com/orgs/AgentDeskAI/projects/1/views/1)
+
+## Updates
+
+v1.3.0 is out! recent Highlights:
+
+- **Configurable screenshot save path** – the `takeScreenshot` MCP tool now accepts an optional `path` parameter so you can store PNGs anywhere (e.g. `await tools.takeScreenshot({ path: "F:/screens/home.png" })`).
+- **Works with DevTools closed** – a background WebSocket handler in the Chrome extension lets you capture screenshots even after you close or undock the BrowserTools panel.
+- Misc. merge-conflict clean-ups and stability improvements.
+
+v1.2.0 is out! Here's a quick breakdown of the update:
+- You can now enable "Allow Auto-Paste into Cursor" within the DevTools panel. Screenshots will be automatically pasted into Cursor (just make sure to focus/click into the Agent input field in Cursor, otherwise it won't work!)
+- Integrated a suite of SEO, performance, accessibility, and best practice analysis tools via Lighthouse
+- Implemented a NextJS specific prompt used to improve SEO for a NextJS application
+- Added Debugger Mode as a tool which executes all debugging tools in a particular sequence, along with a prompt to improve reasoning
+- Added Audit Mode as a tool to execute all auditing tools in a particular sequence
+- Resolved Windows connectivity issues
+- Improved networking between BrowserTools server, extension and MCP server with host/port auto-discovery, auto-reconnect, and graceful shutdown mechanisms
+- Added ability to more easily exit out of the Browser Tools server with Ctrl+C
+
+## Quickstart Guide
+
+There are three components to run this MCP tool:
+
+1. Install our chrome extension from here: [v1.2.0 BrowserToolsMCP Chrome Extension](https://github.com/AgentDeskAI/browser-tools-mcp/releases/download/v1.2.0/BrowserTools-1.2.0-extension.zip)
+2. Install the MCP server from this command within your IDE: `npx @agentdeskai/browser-tools-mcp@latest`
+3. Open a new terminal and run this command: `npx @agentdeskai/browser-tools-server@latest`
+
+* Different IDEs have different configs but this command is generally a good starting point; please reference your IDEs docs for the proper config setup
+
+IMPORTANT TIP - there are two servers you need to install. There's...
+- browser-tools-server (local nodejs server that's a middleware for gathering logs)
+and
+- browser-tools-mcp (MCP server that you install into your IDE that communicates w/ the extension + browser-tools-server)
+
+`npx @agentdeskai/browser-tools-mcp@latest` is what you put into your IDE
+`npx @agentdeskai/browser-tools-server@latest` is what you run in a new terminal window
+
+After those three steps, open up your chrome dev tools and then the BrowserToolsMCP panel.
+
+If you're still having issues try these steps:
+- Quit / close down your browser. Not just the window but all of Chrome itself. 
+- Restart the local node server (browser-tools-server)
+- Make sure you only have ONE instance of chrome dev tools panel open
+
+After that, it should work but if it doesn't let me know and I can share some more steps to gather logs/info about the issue!
+
+If you have any questions or issues, feel free to open an issue ticket! And if you have any ideas to make this better, feel free to reach out or open an issue ticket with an enhancement tag or reach out to me at [@tedx_ai on x](https://x.com/tedx_ai)
+
+## Full Update Notes:
+
+Coding agents like Cursor can run these audits against the current page seamlessly. By leveraging Puppeteer and the Lighthouse npm library, BrowserTools MCP can now:
+
+- Evaluate pages for WCAG compliance
+- Identify performance bottlenecks
+- Flag on-page SEO issues
+- Check adherence to web development best practices
+- Review NextJS specific issues with SEO
+
+...all without leaving your IDE 🎉
+
+---
+
+## 🔑 Key Additions
+
+| Audit Type         | Description                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Accessibility**  | WCAG-compliant checks for color contrast, missing alt text, keyboard navigation traps, ARIA attributes, and more.                        |
+| **Performance**    | Lighthouse-driven analysis of render-blocking resources, excessive DOM size, unoptimized images, and other factors affecting page speed. |
+| **SEO**            | Evaluates on-page SEO factors (like metadata, headings, and link structure) and suggests improvements for better search visibility.      |
+| **Best Practices** | Checks for general best practices in web development.                                                                                    |
+| **NextJS Audit**   | Injects a prompt used to perform a NextJS audit.                                                                                         |
+| **Audit Mode**     | Runs all auditing tools in a sequence.                                                                                                   |
+| **Debugger Mode**  | Runs all debugging tools in a sequence.                                                                                                  |
+
+---
+
+## 🛠️ Using Audit Tools
+
+### ✅ **Before You Start**
+
+Ensure you have:
+
+- An **active tab** in your browser
+- The **BrowserTools extension enabled**
+
+### ▶️ **Running Audits**
+
+**Headless Browser Automation**:  
+ Puppeteer automates a headless Chrome instance to load the page and collect audit data, ensuring accurate results even for SPAs or content loaded via JavaScript.
+
+The headless browser instance remains active for **60 seconds** after the last audit call to efficiently handle consecutive audit requests.
+
+**Structured Results**:  
+ Each audit returns results in a structured JSON format, including overall scores and detailed issue lists. This makes it easy for MCP-compatible clients to interpret the findings and present actionable insights.
+
+The MCP server provides tools to run audits on the current page. Here are example queries you can use to trigger them:
+
+#### Accessibility Audit (`runAccessibilityAudit`)
+
+Ensures the page meets accessibility standards like WCAG.
+
+> **Example Queries:**
+>
+> - "Are there any accessibility issues on this page?"
+> - "Run an accessibility audit."
+> - "Check if this page meets WCAG standards."
+
+#### Performance Audit (`runPerformanceAudit`)
+
+Identifies performance bottlenecks and loading issues.
+
+> **Example Queries:**
+>
+> - "Why is this page loading so slowly?"
+> - "Check the performance of this page."
+> - "Run a performance audit."
+
+#### SEO Audit (`runSEOAudit`)
+
+Evaluates how well the page is optimized for search engines.
+
+> **Example Queries:**
+>
+> - "How can I improve SEO for this page?"
+> - "Run an SEO audit."
+> - "Check SEO on this page."
+
+#### Best Practices Audit (`runBestPracticesAudit`)
+
+Checks for general best practices in web development.
+
+> **Example Queries:**
+>
+> - "Run a best practices audit."
+> - "Check best practices on this page."
+> - "Are there any best practices issues on this page?"
+
+#### Audit Mode (`runAuditMode`)
+
+Runs all audits in a particular sequence. Will run a NextJS audit if the framework is detected.
+
+> **Example Queries:**
+>
+> - "Run audit mode."
+> - "Enter audit mode."
+
+#### NextJS Audits (`runNextJSAudit`)
+
+Checks for best practices and SEO improvements for NextJS applications
+
+> **Example Queries:**
+>
+> - "Run a NextJS audit."
+> - "Run a NextJS audit, I'm using app router."
+> - "Run a NextJS audit, I'm using page router."
+
+#### Debugger Mode (`runDebuggerMode`)
+
+Runs all debugging tools in a particular sequence
+
+> **Example Queries:**
+>
+> - "Enter debugger mode."
+
+## Architecture
+
+There are three core components all used to capture and analyze browser data:
+
+1. **Chrome Extension**: A browser extension that captures screenshots, console logs, network activity and DOM elements.
+2. **Node Server**: An intermediary server that facilitates communication between the Chrome extension and any instance of an MCP server.
+3. **MCP Server**: A Model Context Protocol server that provides standardized tools for AI clients to interact with the browser.
+
+```
+┌─────────────┐     ┌──────────────┐     ┌───────────────┐     ┌─────────────┐
+│  MCP Client │ ──► │  MCP Server  │ ──► │  Node Server  │ ──► │   Chrome    │
+│  (e.g.      │ ◄── │  (Protocol   │ ◄── │ (Middleware)  │ ◄── │  Extension  │
+│   Cursor)   │     │   Handler)   │     │               │     │             │
+└─────────────┘     └──────────────┘     └───────────────┘     └─────────────┘
+```
+
+Model Context Protocol (MCP) is a capability supported by Anthropic AI models that
+allow you to create custom tools for any compatible client. MCP clients like Claude
+Desktop, Cursor, Cline or Zed can run an MCP server which "teaches" these clients
+about a new tool that they can use.
+
+These tools can call out to external APIs but in our case, **all logs are stored locally** on your machine and NEVER sent out to any third-party service or API. BrowserTools MCP runs a local instance of a NodeJS API server which communicates with the BrowserTools Chrome Extension.
+
+All consumers of the BrowserTools MCP Server interface with the same NodeJS API and Chrome extension.
+
+#### Chrome Extension
+
+- Monitors XHR requests/responses and console logs
+- Tracks selected DOM elements
+- Sends all logs and current element to the BrowserTools Connector
+- Connects to Websocket server to capture/send screenshots
+- Allows user to configure token/truncation limits + screenshot folder path
+
+#### Node Server
+
+- Acts as middleware between the Chrome extension and MCP server
+- Receives logs and currently selected element from Chrome extension
+- Processes requests from MCP server to capture logs, screenshot or current element
+- Sends Websocket command to the Chrome extension for capturing a screenshot
+- Intelligently truncates strings and # of duplicate objects in logs to avoid token limits
+- Removes cookies and sensitive headers to avoid sending to LLMs in MCP clients
+
+#### MCP Server
+
+- Implements the Model Context Protocol
+- Provides standardized tools for AI clients
+- Compatible with various MCP clients (Cursor, Cline, Zed, Claude Desktop, etc.)
+
+## Installation
+
+Installation steps can be found in our documentation:
+
+- [BrowserTools MCP Docs](https://browsertools.agentdesk.ai/)
+
+## Usage
+
+Once installed and configured, the system allows any compatible MCP client to:
+
+- Monitor browser console output
+- Capture network traffic
+- Take screenshots
+- Analyze selected elements
+- Wipe logs stored in our MCP server
+- Run accessibility, performance, SEO, and best practices audits
+
+## Compatibility
+
+- Works with any MCP-compatible client
+- Primarily designed for Cursor IDE integration
+- Supports other AI editors and MCP clients
