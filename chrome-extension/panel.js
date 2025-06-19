@@ -317,6 +317,7 @@ const showResponseHeadersCheckbox = document.getElementById(
 const maxLogSizeInput = document.getElementById("max-log-size");
 const screenshotPathInput = document.getElementById("screenshot-path");
 const captureScreenshotButton = document.getElementById("capture-screenshot");
+const refreshPageButton = document.getElementById("refresh-page");
 
 // Server connection UI elements
 const serverHostInput = document.getElementById("server-host");
@@ -951,6 +952,25 @@ captureScreenshotButton.addEventListener("click", () => {
       }, 2000);
     }
   );
+});
+
+// Refresh page functionality
+refreshPageButton.addEventListener("click", () => {
+  refreshPageButton.textContent = "Refreshing...";
+
+  // Use chrome.tabs.reload directly to refresh the current tab
+  chrome.tabs.reload(chrome.devtools.inspectedWindow.tabId, {}, () => {
+    if (chrome.runtime.lastError) {
+      console.error("Page refresh failed:", chrome.runtime.lastError);
+      refreshPageButton.textContent = "Failed to refresh!";
+    } else {
+      console.log("Page refreshed successfully");
+      refreshPageButton.textContent = "Refreshed!";
+    }
+    setTimeout(() => {
+      refreshPageButton.textContent = "Refresh Page";
+    }, 2000);
+  });
 });
 
 // Add wipe logs functionality

@@ -632,6 +632,17 @@ export class BrowserConnector {
       }
     );
 
+    // Register the refresh-page endpoint
+    this.app.post(
+      "/refresh-page",
+      async (req: express.Request, res: express.Response) => {
+        console.log(
+          "Browser Connector: Received request to /refresh-page endpoint"
+        );
+        await this.refreshPage(req, res);
+      }
+    );
+
     // Set up accessibility audit endpoint
     this.setupAccessibilityAudit();
 
@@ -728,6 +739,13 @@ export class BrowserConnector {
               screenshotCallbacks.clear(); // Clear all callbacks
             } else {
               console.log("No callbacks found for screenshot");
+            }
+          }
+          // Handle refresh page response
+          else if (data.type === "refresh-page-response") {
+            console.log("Received refresh page response:", data.success ? "success" : "error");
+            if (data.error) {
+              console.log("Refresh page error:", data.error);
             }
           }
           // Handle screenshot error
@@ -1240,6 +1258,44 @@ export class BrowserConnector {
         error instanceof Error ? error.message : String(error);
       console.error(
         "Browser Connector: Error capturing screenshot:",
+        errorMessage
+      );
+      res.status(500).json({
+        error: errorMessage,
+      });
+    }
+  }
+
+  async refreshPage(req: express.Request, res: express.Response) {
+    console.log("Browser Connector: Starting refreshPage method");
+
+    if (!this.activeConnection) {
+      console.log(
+        "Browser Connector: No active WebSocket connection to Chrome extension"
+      );
+      return res.status(503).json({ error: "Chrome extension not connected" });
+    }
+
+    try {
+      // Send refresh request to extension
+      const message = JSON.stringify({
+        type: "refresh-page",
+      });
+      console.log(
+        `Browser Connector: Sending WebSocket message to extension:`,
+        message
+      );
+      this.activeConnection.send(message);
+
+      res.json({
+        success: true,
+        message: "Page refresh request sent successfully",
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error(
+        "Browser Connector: Error refreshing page:",
         errorMessage
       );
       res.status(500).json({

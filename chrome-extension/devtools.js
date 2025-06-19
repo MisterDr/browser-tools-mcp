@@ -14,6 +14,35 @@ let settings = {
   allowAutoPaste: false, // Default auto-paste setting
 };
 
+// Function to check if extension context is still valid
+function isExtensionContextValid() {
+  try {
+    return chrome.runtime && chrome.runtime.id;
+  } catch (error) {
+    return false;
+  }
+}
+
+// Function to safely send runtime messages
+function safeRuntimeSendMessage(message, callback) {
+  if (!isExtensionContextValid()) {
+    console.warn("Extension context is invalid, cannot send message");
+    return false;
+  }
+
+  try {
+    if (callback) {
+      chrome.runtime.sendMessage(message, callback);
+    } else {
+      chrome.runtime.sendMessage(message);
+    }
+    return true;
+  } catch (error) {
+    console.error("Error sending runtime message:", error);
+    return false;
+  }
+}
+
 // Keep track of debugger state
 let isDebuggerAttached = false;
 let attachDebuggerRetries = 0;
@@ -356,6 +385,7 @@ async function validateServerIdentity() {
     console.log(
       `Validating server identity at ${settings.serverHost}:${settings.serverPort}...`
     );
+    console.log(`Full URL: http://${settings.serverHost}:${settings.serverPort}/.identity`);
 
     // Use fetch with a timeout to prevent long-hanging requests
     const response = await fetch(
@@ -364,6 +394,8 @@ async function validateServerIdentity() {
         signal: AbortSignal.timeout(3000), // 3 second timeout
       }
     );
+
+    console.log(`Response status: ${response.status}, OK: ${response.ok}`);
 
     if (!response.ok) {
       console.error(
@@ -414,9 +446,12 @@ async function validateServerIdentity() {
     return true;
   } catch (error) {
     console.error("Server identity validation failed:", error);
+    console.error("Error type:", error.constructor.name);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
 
     // Notify about the connection error
-    chrome.runtime.sendMessage({
+    safeRuntimeSendMessage({
       type: "SERVER_VALIDATION_FAILED",
       reason: "connection_error",
       error: error.message,
@@ -752,6 +787,34 @@ function sendHeartbeat() {
   }
 }
 
+// Function to recover from extension context invalidation
+function attemptConnectionRecovery() {
+  console.log("Attempting connection recovery...");
+  
+  if (!isExtensionContextValid()) {
+    console.error("Extension context is still invalid, cannot recover");
+    return false;
+  }
+  
+  // Reset WebSocket connection
+  if (ws) {
+    try {
+      ws.close();
+    } catch (e) {
+      console.warn("Error closing existing WebSocket:", e);
+    }
+    ws = null;
+  }
+  
+  // Re-establish connection
+  setTimeout(() => {
+    console.log("Re-establishing WebSocket connection...");
+    setupWebSocket();
+  }, 1000);
+  
+  return true;
+}
+
 async function setupWebSocket() {
   // Clear any pending timeouts
   if (wsReconnectTimeout) {
@@ -1002,6 +1065,48 @@ async function setupWebSocket() {
 
             ws.send(JSON.stringify(response));
           });
+        } else if (message.type === "refresh-page") {
+          console.log("Chrome Extension: Received request to refresh page");
+          console.log("Chrome Extension: Current tab ID:", chrome.devtools.inspectedWindow.tabId);
+          
+          try {
+            // Use chrome.tabs.reload to refresh the current tab
+            console.log("Chrome Extension: Calling chrome.tabs.reload...");
+            chrome.tabs.reload(chrome.devtools.inspectedWindow.tabId, {}, () => {
+              console.log("Chrome Extension: chrome.tabs.reload callback executed");
+              if (chrome.runtime.lastError) {
+                console.error(
+                  "Chrome Extension: Page refresh failed:",
+                  chrome.runtime.lastError
+                );
+                ws.send(
+                  JSON.stringify({
+                    type: "refresh-page-response",
+                    success: false,
+                    error: chrome.runtime.lastError.message,
+                  })
+                );
+                return;
+              }
+              
+              console.log("Chrome Extension: Page refreshed successfully");
+              ws.send(
+                JSON.stringify({
+                  type: "refresh-page-response",
+                  success: true,
+                })
+              );
+            });
+          } catch (error) {
+            console.error("Chrome Extension: Error refreshing page:", error);
+            ws.send(
+              JSON.stringify({
+                type: "refresh-page-response",
+                success: false,
+                error: error.message,
+              })
+            );
+          }
         } else if (message.type === "get-current-url") {
           console.log("Chrome Extension: Received request for current URL");
 

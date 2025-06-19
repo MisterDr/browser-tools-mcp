@@ -8,7 +8,7 @@ import fs from "fs";
 // Create the MCP server
 const server = new McpServer({
   name: "Browser Tools MCP",
-  version: "1.2.0",
+  version: "1.4.0",
 });
 
 // Track the discovered server connection
@@ -290,6 +290,56 @@ server.tool(
             {
               type: "text",
               text: `Failed to take screenshot: ${errorMessage}`,
+            },
+          ],
+        };
+      }
+    });
+  }
+);
+
+server.tool(
+  "refreshPage",
+  "Refresh the current browser page",
+  async () => {
+    return await withServerConnection(async () => {
+      try {
+        const response = await fetch(
+          `http://${discoveredHost}:${discoveredPort}/refresh-page`,
+          {
+            method: "POST",
+          }
+        );
+
+        const result = await response.json();
+
+        if (response.ok) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: result.message || "Page refreshed successfully",
+              },
+            ],
+          };
+        } else {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error refreshing page: ${result.error}`,
+              },
+            ],
+          };
+        }
+      } catch (error: any) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to refresh page: ${errorMessage}`,
             },
           ],
         };
