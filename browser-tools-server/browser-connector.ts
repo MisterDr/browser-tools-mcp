@@ -181,6 +181,14 @@ interface ScreenshotCallback {
 
 const screenshotCallbacks = new Map<string, ScreenshotCallback>();
 
+// Script execution callback type
+interface ScriptCallback {
+  resolve: (result: { output: any; error?: string }) => void;
+  reject: (reason: Error) => void;
+}
+
+const scriptCallbacks = new Map<string, ScriptCallback>();
+
 // Function to get available port starting with the given port
 async function getAvailablePort(
   startPort: number,
@@ -517,7 +525,7 @@ app.get("/.identity", (req, res) => {
   res.json({
     port: PORT,
     name: "browser-tools-server",
-    version: "1.2.0",
+    version: "1.4.0",
     signature: "mcp-browser-connector-24x7",
   });
 });
@@ -643,6 +651,17 @@ export class BrowserConnector {
       }
     );
 
+    // Register the run-script endpoint
+    this.app.post(
+      "/run-script",
+      async (req: express.Request, res: express.Response) => {
+        console.log(
+          "Browser Connector: Received request to /run-script endpoint"
+        );
+        await this.runScript(req, res);
+      }
+    );
+
     // Set up accessibility audit endpoint
     this.setupAccessibilityAudit();
 
@@ -746,6 +765,36 @@ export class BrowserConnector {
             console.log("Received refresh page response:", data.success ? "success" : "error");
             if (data.error) {
               console.log("Refresh page error:", data.error);
+            }
+          }
+          // Handle script execution response
+          else if (data.type === "script-result") {
+            console.log("Received script execution result:", data.requestId);
+            if (scriptCallbacks.has(data.requestId)) {
+              const callback = scriptCallbacks.get(data.requestId);
+              if (callback) {
+                callback.resolve({
+                  output: data.result,
+                  error: data.error
+                });
+                scriptCallbacks.delete(data.requestId);
+              }
+            } else {
+              console.log("No callback found for script execution:", data.requestId);
+            }
+          }
+          // Handle script execution error
+          else if (data.type === "script-error") {
+            console.log("Received script execution error:", data.error);
+            if (scriptCallbacks.has(data.requestId)) {
+              const callback = scriptCallbacks.get(data.requestId);
+              if (callback) {
+                callback.resolve({
+                  output: null,
+                  error: data.error || "Script execution failed"
+                });
+                scriptCallbacks.delete(data.requestId);
+              }
             }
           }
           // Handle screenshot error
@@ -1304,6 +1353,78 @@ export class BrowserConnector {
     }
   }
 
+  async runScript(req: express.Request, res: express.Response) {
+    console.log("Browser Connector: Starting runScript method");
+
+    if (!this.activeConnection) {
+      console.log(
+        "Browser Connector: No active WebSocket connection to Chrome extension"
+      );
+      return res.status(503).json({ error: "Chrome extension not connected" });
+    }
+
+    const { script } = req.body;
+    
+    if (!script) {
+      return res.status(400).json({ error: "Script is required" });
+    }
+
+    try {
+      console.log("Browser Connector: Executing script:", script);
+      const requestId = Date.now().toString();
+      
+      // Create a promise to wait for the script execution result
+      const scriptPromise = new Promise<{ output: any; error?: string }>((resolve, reject) => {
+        // Store callback in the global scriptCallbacks map
+        scriptCallbacks.set(requestId, { resolve, reject });
+        
+        // Set timeout to clean up if we don't get a response
+        setTimeout(() => {
+          if (scriptCallbacks.has(requestId)) {
+            scriptCallbacks.delete(requestId);
+            reject(new Error("Script execution timed out"));
+          }
+        }, 10000); // 10 second timeout
+      });
+
+      // Send script execution request to extension
+      const message = JSON.stringify({
+        type: "run-script",
+        script: script,
+        requestId: requestId,
+      });
+      console.log(
+        `Browser Connector: Sending WebSocket message to extension:`,
+        message
+      );
+      this.activeConnection.send(message);
+
+      // Wait for script execution result
+      const result = await scriptPromise;
+      
+      if (result.error) {
+        res.status(500).json({
+          error: result.error,
+        });
+      } else {
+        res.json({
+          success: true,
+          output: result.output,
+        });
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error(
+        "Browser Connector: Error running script:",
+        errorMessage
+      );
+      res.status(500).json({
+        error: errorMessage,
+      });
+    }
+  }
+
   // Add shutdown method
   public shutdown() {
     return new Promise<void>((resolve) => {
@@ -1397,7 +1518,7 @@ export class BrowserConnector {
     this.app.get("/.identity", (req, res) => {
       res.json({
         signature: "mcp-browser-connector-24x7",
-        version: "1.2.0",
+        version: "1.4.0",
       });
     });
 

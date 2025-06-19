@@ -50,6 +50,7 @@ npx @agentdeskai/browser-tools-mcp
 - Network request monitoring
 - Screenshot capture
 - Page refresh capability
+- JavaScript code execution
 - Element selection
 - Browser state analysis
 - Accessibility and performance audits
@@ -65,6 +66,7 @@ The server provides the following MCP functions:
 - `mcp_getNetworkLogs` - Get all network logs
 - `mcp_takeScreenshot` - Take a screenshot of the current browser tab
 - `mcp_refreshPage` - Refresh the current browser page
+- `mcp_runScript` - Run JavaScript code in the browser and get the output
 - `mcp_getSelectedElement` - Get the currently selected DOM element
 - `mcp_runAccessibilityAudit` - Run a WCAG-compliant accessibility audit
 - `mcp_runPerformanceAudit` - Run a performance audit

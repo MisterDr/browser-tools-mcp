@@ -1107,6 +1107,47 @@ async function setupWebSocket() {
               })
             );
           }
+        } else if (message.type === "run-script") {
+          console.log("Chrome Extension: Received request to run script");
+          console.log("Chrome Extension: Script:", message.script);
+          
+          try {
+            // Use chrome.devtools.inspectedWindow.eval to execute the script
+            chrome.devtools.inspectedWindow.eval(
+              message.script,
+              (result, exceptionInfo) => {
+                if (exceptionInfo) {
+                  console.error("Chrome Extension: Script execution failed:", exceptionInfo);
+                  ws.send(
+                    JSON.stringify({
+                      type: "script-error",
+                      error: exceptionInfo.description || "Script execution failed",
+                      requestId: message.requestId,
+                    })
+                  );
+                } else {
+                  console.log("Chrome Extension: Script executed successfully");
+                  console.log("Chrome Extension: Result:", result);
+                  ws.send(
+                    JSON.stringify({
+                      type: "script-result",
+                      result: result,
+                      requestId: message.requestId,
+                    })
+                  );
+                }
+              }
+            );
+          } catch (error) {
+            console.error("Chrome Extension: Error executing script:", error);
+            ws.send(
+              JSON.stringify({
+                type: "script-error",
+                error: error.message,
+                requestId: message.requestId,
+              })
+            );
+          }
         } else if (message.type === "get-current-url") {
           console.log("Chrome Extension: Received request for current URL");
 

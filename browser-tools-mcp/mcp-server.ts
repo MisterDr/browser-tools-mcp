@@ -2,6 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
 import path from "path";
 import fs from "fs";
 
@@ -340,6 +341,65 @@ server.tool(
             {
               type: "text",
               text: `Failed to refresh page: ${errorMessage}`,
+            },
+          ],
+        };
+      }
+    });
+  }
+);
+
+server.tool(
+  "runScript",
+  "Run JavaScript code in the browser and get the output",
+  {
+    script: z.string().describe("The JavaScript code to execute in the browser"),
+  },
+  async (args) => {
+    return await withServerConnection(async () => {
+      try {
+        const response = await fetch(
+          `http://${discoveredHost}:${discoveredPort}/run-script`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              script: args.script,
+            }),
+          }
+        );
+
+        const result = await response.json();
+
+        if (response.ok) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Script result: ${result.output || result.result}`,
+              },
+            ],
+          };
+        } else {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error running script: ${result.error}`,
+              },
+            ],
+          };
+        }
+      } catch (error: any) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to run script: ${errorMessage}`,
             },
           ],
         };
