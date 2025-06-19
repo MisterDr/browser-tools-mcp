@@ -12,7 +12,15 @@ Check out our project roadmap here: [Github Roadmap / Project Board](https://git
 
 ## Updates
 
-v1.2.0 is out! Here's a quick breakdown of the update:
+v1.4.0 is out! Here's a comprehensive breakdown of the latest updates:
+
+### 🚀 New Features in v1.4.0:
+- **Dynamic JavaScript Execution**: Added `runScript` MCP tool for executing custom JavaScript code in the browser
+- **Page Refresh Control**: Added `refreshPage` MCP tool for programmatic page refreshing
+- **Enhanced Server Identity**: Improved server version reporting and identity validation
+- **Extended MCP Capabilities**: Expanded the range of browser interactions available to AI tools
+
+### 🔧 Previous Features (v1.2.0):
 - You can now enable "Allow Auto-Paste into Cursor" within the DevTools panel. Screenshots will be automatically pasted into Cursor (just make sure to focus/click into the Agent input field in Cursor, otherwise it won't work!)
 - Integrated a suite of SEO, performance, accessibility, and best practice analysis tools via Lighthouse
 - Implemented a NextJS specific prompt used to improve SEO for a NextJS application
@@ -22,11 +30,46 @@ v1.2.0 is out! Here's a quick breakdown of the update:
 - Improved networking between BrowserTools server, extension and MCP server with host/port auto-discovery, auto-reconnect, and graceful shutdown mechanisms
 - Added ability to more easily exit out of the Browser Tools server with Ctrl+C
 
+## 🚀 Detailed New Features in v1.4.0
+
+### Dynamic JavaScript Execution (`runScript`)
+Execute any custom JavaScript code directly in the browser context and get results back. Perfect for:
+- **DOM Analysis**: Query elements, extract data, analyze page structure
+- **Accessibility Testing**: Find elements with specific attributes (tabindex, aria-labels, etc.)
+- **Data Extraction**: Extract form data, product information, user details
+- **Page Interaction**: Simulate user actions, test functionality
+- **Development Debugging**: Execute diagnostic scripts, check variables
+
+**Example Usage:**
+```javascript
+// Find all elements with tabindex other than "0"
+Array.from(document.querySelectorAll('[tabindex]')).filter(el => el.getAttribute('tabindex') !== '0')
+
+// Get all form inputs and their values
+Array.from(document.querySelectorAll('input')).map(input => ({name: input.name, value: input.value}))
+
+// Extract all links from the page
+Array.from(document.querySelectorAll('a')).map(link => ({text: link.textContent, href: link.href}))
+```
+
+### Page Refresh Control (`refreshPage`)
+Programmatically refresh the current browser page without manual intervention. Useful for:
+- **Automated Testing**: Refresh pages between test scenarios
+- **Development Workflows**: Auto-refresh after code changes
+- **State Reset**: Clear browser state and reload content
+- **Cache Busting**: Force reload of updated resources
+
+### Enhanced Architecture
+- **Improved Server Identity**: Better version tracking and validation
+- **Robust Error Handling**: Enhanced error reporting and recovery
+- **WebSocket Reliability**: More stable communication between components
+- **Extension Context Management**: Better handling of Chrome extension lifecycle
+
 ## Quickstart Guide
 
 There are three components to run this MCP tool:
 
-1. Install our chrome extension from here: [v1.2.0 BrowserToolsMCP Chrome Extension](https://github.com/AgentDeskAI/browser-tools-mcp/releases/download/v1.2.0/BrowserTools-1.2.0-extension.zip)
+1. Install our chrome extension from here: [v1.4.0 BrowserToolsMCP Chrome Extension](https://github.com/AgentDeskAI/browser-tools-mcp/releases/download/v1.4.0/BrowserTools-1.4.0-extension.zip)
 2. Install the MCP server from this command within your IDE: `npx @agentdeskai/browser-tools-mcp@latest`
 3. Open a new terminal and run this command: `npx @agentdeskai/browser-tools-server@latest`
 
