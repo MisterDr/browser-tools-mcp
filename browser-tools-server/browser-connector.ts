@@ -769,32 +769,45 @@ export class BrowserConnector {
           }
           // Handle script execution response
           else if (data.type === "script-result") {
-            console.log("Received script execution result:", data.requestId);
+            console.log("Browser Connector: Received script execution result:", data.requestId);
+            console.log("Browser Connector: Result data:", data.result);
+            console.log("Browser Connector: Current callback count:", scriptCallbacks.size);
+            console.log("Browser Connector: Has callback for this request ID:", scriptCallbacks.has(data.requestId));
+            
             if (scriptCallbacks.has(data.requestId)) {
               const callback = scriptCallbacks.get(data.requestId);
               if (callback) {
+                console.log("Browser Connector: Resolving callback for request ID:", data.requestId);
                 callback.resolve({
                   output: data.result,
                   error: data.error
                 });
                 scriptCallbacks.delete(data.requestId);
+                console.log("Browser Connector: Callback resolved and deleted, remaining count:", scriptCallbacks.size);
               }
             } else {
-              console.log("No callback found for script execution:", data.requestId);
+              console.log("Browser Connector: No callback found for script execution:", data.requestId);
+              console.log("Browser Connector: Available request IDs:", Array.from(scriptCallbacks.keys()));
             }
           }
           // Handle script execution error
           else if (data.type === "script-error") {
-            console.log("Received script execution error:", data.error);
+            console.log("Browser Connector: Received script execution error:", data.error);
+            console.log("Browser Connector: Error request ID:", data.requestId);
+            
             if (scriptCallbacks.has(data.requestId)) {
               const callback = scriptCallbacks.get(data.requestId);
               if (callback) {
+                console.log("Browser Connector: Resolving error callback for request ID:", data.requestId);
                 callback.resolve({
                   output: null,
                   error: data.error || "Script execution failed"
                 });
                 scriptCallbacks.delete(data.requestId);
+                console.log("Browser Connector: Error callback resolved and deleted");
               }
+            } else {
+              console.log("Browser Connector: No callback found for script error:", data.requestId);
             }
           }
           // Handle screenshot error
@@ -1370,19 +1383,26 @@ export class BrowserConnector {
     try {
       console.log("Browser Connector: Executing script:", script);
       const requestId = Date.now().toString();
+      console.log("Browser Connector: Generated request ID:", requestId);
+      
+      // Check WebSocket connection state
+      console.log("Browser Connector: WebSocket state:", this.activeConnection.readyState);
       
       // Create a promise to wait for the script execution result
       const scriptPromise = new Promise<{ output: any; error?: string }>((resolve, reject) => {
         // Store callback in the global scriptCallbacks map
         scriptCallbacks.set(requestId, { resolve, reject });
+        console.log("Browser Connector: Stored callback for request ID:", requestId);
+        console.log("Browser Connector: Current callback count:", scriptCallbacks.size);
         
         // Set timeout to clean up if we don't get a response
         setTimeout(() => {
           if (scriptCallbacks.has(requestId)) {
+            console.log("Browser Connector: Script execution timed out for request ID:", requestId);
             scriptCallbacks.delete(requestId);
             reject(new Error("Script execution timed out"));
           }
-        }, 10000); // 10 second timeout
+        }, 15000); // Increased to 15 second timeout
       });
 
       // Send script execution request to extension
@@ -1395,7 +1415,15 @@ export class BrowserConnector {
         `Browser Connector: Sending WebSocket message to extension:`,
         message
       );
-      this.activeConnection.send(message);
+      
+      try {
+        this.activeConnection.send(message);
+        console.log("Browser Connector: Message sent successfully");
+      } catch (sendError) {
+        console.error("Browser Connector: Error sending WebSocket message:", sendError);
+        scriptCallbacks.delete(requestId);
+        throw sendError;
+      }
 
       // Wait for script execution result
       const result = await scriptPromise;
@@ -1443,16 +1471,24 @@ export class BrowserConnector {
         }
       }
 
-      // Set a timeout to force close after 2 seconds
+      // Set a timeout to force close after 1 second
       const forceCloseTimeout = setTimeout(() => {
         console.log("Force closing connections after timeout...");
         if (this.activeConnection) {
           this.activeConnection.terminate(); // Force close the connection
           this.activeConnection = null;
         }
-        this.wss.close();
+        
+        // Force close WebSocket server if it hasn't closed yet
+        try {
+          this.wss.close();
+        } catch (err) {
+          console.error("Error force closing WebSocket server:", err);
+        }
+        
+        console.log("WebSocket server closed (forced)");
         resolve();
-      }, 2000);
+      }, 1000);
 
       // Close active WebSocket connection if exists
       if (this.activeConnection) {
@@ -1460,12 +1496,22 @@ export class BrowserConnector {
         this.activeConnection = null;
       }
 
-      // Close WebSocket server
-      this.wss.close(() => {
+      // Close WebSocket server with error handling
+      try {
+        this.wss.close((err) => {
+          clearTimeout(forceCloseTimeout);
+          if (err) {
+            console.error("Error closing WebSocket server:", err);
+          } else {
+            console.log("WebSocket server closed gracefully");
+          }
+          resolve();
+        });
+      } catch (err) {
+        console.error("Error initiating WebSocket server close:", err);
         clearTimeout(forceCloseTimeout);
-        console.log("WebSocket server closed gracefully");
         resolve();
-      });
+      }
     });
   }
 
@@ -1652,16 +1698,29 @@ export class BrowserConnector {
     process.on("SIGINT", async () => {
       console.log("\nReceived SIGINT signal. Starting graceful shutdown...");
 
+      // Set an overall shutdown timeout to prevent hanging
+      const overallTimeout = setTimeout(() => {
+        console.log("Shutdown timeout reached, forcing exit...");
+        process.exit(0);
+      }, 5000); // 5 second overall timeout
+
       try {
         // First shutdown WebSocket connections
         await browserConnector.shutdown();
 
-        // Then close the HTTP server
+        // Then close the HTTP server with timeout
         await new Promise<void>((resolve, reject) => {
+          // Set a timeout for HTTP server shutdown
+          const httpTimeout = setTimeout(() => {
+            console.log("HTTP server shutdown timeout, forcing exit...");
+            resolve(); // Resolve to continue with shutdown
+          }, 3000);
+
           server.close((err) => {
+            clearTimeout(httpTimeout);
             if (err) {
               console.error("Error closing HTTP server:", err);
-              reject(err);
+              resolve(); // Still resolve to allow graceful shutdown to continue
             } else {
               console.log("HTTP server closed successfully");
               resolve();
@@ -1672,11 +1731,15 @@ export class BrowserConnector {
         // Clear all logs
         clearAllLogs();
 
+        // Clear the overall timeout since we completed successfully
+        clearTimeout(overallTimeout);
+
         console.log("Shutdown completed successfully");
         process.exit(0);
       } catch (error) {
         console.error("Error during shutdown:", error);
-        // Force exit in case of error
+        // Clear timeout and force exit in case of error
+        clearTimeout(overallTimeout);
         process.exit(1);
       }
     });

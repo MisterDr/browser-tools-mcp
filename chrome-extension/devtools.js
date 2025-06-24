@@ -772,18 +772,35 @@ chrome.devtools.panels.elements.onSelectionChanged.addListener(() => {
 let ws = null;
 let wsReconnectTimeout = null;
 let heartbeatInterval = null;
-const WS_RECONNECT_DELAY = 5000; // 5 seconds
-const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+let connectionCheckInterval = null;
+const WS_RECONNECT_DELAY = 3000; // 3 seconds (reduced for faster reconnection)
+const HEARTBEAT_INTERVAL = 15000; // 15 seconds (reduced for better monitoring)
+const CONNECTION_CHECK_INTERVAL = 10000; // 10 seconds (periodic connection check)
 // Add a flag to track if we need to reconnect after identity validation
 let reconnectAfterValidation = false;
 // Track if we're intentionally closing the connection
 let intentionalClosure = false;
+// Track if we're currently trying to connect (to prevent concurrent attempts)
+let isConnecting = false;
+// Track last successful validation time to avoid excessive validations
+let lastValidationTime = 0;
+const VALIDATION_CACHE_DURATION = 30000; // Cache validation for 30 seconds
+// Track last successful message to detect stale connections
+let lastMessageTime = 0;
 
 // Function to send a heartbeat to keep the WebSocket connection alive
 function sendHeartbeat() {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    console.log("Chrome Extension: Sending WebSocket heartbeat");
-    ws.send(JSON.stringify({ type: "heartbeat" }));
+    try {
+      ws.send(JSON.stringify({ type: "heartbeat" }));
+    } catch (error) {
+      console.error("Chrome Extension: Failed to send heartbeat:", error);
+      // If heartbeat fails, the connection might be broken
+      if (ws.readyState !== WebSocket.OPEN) {
+        console.log("Chrome Extension: WebSocket connection appears broken, will reconnect");
+        setupWebSocket();
+      }
+    }
   }
 }
 
@@ -815,61 +832,271 @@ function attemptConnectionRecovery() {
   return true;
 }
 
-async function setupWebSocket() {
-  // Clear any pending timeouts
-  if (wsReconnectTimeout) {
-    clearTimeout(wsReconnectTimeout);
-    wsReconnectTimeout = null;
-  }
+// Track the current tab context
+let currentTabContext = {
+  tabId: chrome.devtools.inspectedWindow.tabId,
+  isValid: true,
+  lastValidation: Date.now(),
+  consecutiveFailures: 0,
+  lastSuccessfulScript: Date.now()
+};
 
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
+// Function to validate and update tab context
+function validateTabContext() {
+  const now = Date.now();
+  const timeSinceLastValidation = now - currentTabContext.lastValidation;
+  
+  // Only validate if it's been more than 500ms since last validation (more frequent checks)
+  if (timeSinceLastValidation < 500) {
+    return currentTabContext.isValid;
   }
-
-  // Close existing WebSocket if any
-  if (ws) {
-    // Set flag to indicate this is an intentional closure
-    intentionalClosure = true;
+  
+  try {
+    // Enhanced check if DevTools context is available
+    const tabId = chrome.devtools.inspectedWindow.tabId;
+    const hasDevTools = !!(chrome.devtools && chrome.devtools.inspectedWindow);
+    const hasValidTabId = !!(tabId && tabId > 0);
+    
+    // Additional check: try to access inspectedWindow properties
+    let contextAccessible = false;
     try {
-      ws.close();
+      // This will throw if context is invalid
+      chrome.devtools.inspectedWindow.tabId;
+      contextAccessible = true;
     } catch (e) {
-      console.error("Error closing existing WebSocket:", e);
+      console.warn("Chrome Extension: Cannot access inspectedWindow:", e);
+      contextAccessible = false;
     }
-    ws = null;
-    intentionalClosure = false; // Reset flag
+    
+    currentTabContext.isValid = hasDevTools && hasValidTabId && contextAccessible;
+    currentTabContext.tabId = tabId;
+    currentTabContext.lastValidation = now;
+    
+    if (!currentTabContext.isValid) {
+      currentTabContext.consecutiveFailures++;
+      console.warn("Chrome Extension: DevTools tab context is invalid", {
+        hasDevTools,
+        hasValidTabId,
+        contextAccessible,
+        tabId,
+        consecutiveFailures: currentTabContext.consecutiveFailures
+      });
+    } else {
+      // Reset failure counter on success
+      currentTabContext.consecutiveFailures = 0;
+    }
+    
+    return currentTabContext.isValid;
+  } catch (error) {
+    console.error("Chrome Extension: Error validating tab context:", error);
+    currentTabContext.isValid = false;
+    currentTabContext.lastValidation = now;
+    currentTabContext.consecutiveFailures++;
+    return false;
   }
+}
 
-  // Validate server identity before connecting
-  console.log("Validating server identity before WebSocket connection...");
-  const isValid = await validateServerIdentity();
+// Function to attempt context recovery
+function attemptContextRecovery() {
+  console.log("Chrome Extension: Attempting context recovery...");
+  
+  // Reset validation to force a fresh check
+  currentTabContext.lastValidation = 0;
+  
+  // Don't reset consecutive failures here - let it accumulate to detect persistent issues
+  
+  // Try multiple recovery steps
+  return new Promise((resolve) => {
+    console.log("Chrome Extension: Step 1 - Validating current context");
+    
+    // First, try immediate validation
+    let isValid = validateTabContext();
+    if (isValid) {
+      console.log("Chrome Extension: Context recovery successful immediately");
+      currentTabContext.consecutiveFailures = 0;
+      resolve(true);
+      return;
+    }
+    
+    console.log("Chrome Extension: Step 2 - Waiting for context to stabilize");
+    // Wait a bit for context to stabilize, then validate again
+    setTimeout(() => {
+      isValid = validateTabContext();
+      if (isValid) {
+        console.log("Chrome Extension: Context recovery successful after waiting");
+        currentTabContext.consecutiveFailures = 0;
+        resolve(true);
+        return;
+      }
+      
+      console.log("Chrome Extension: Step 3 - Attempting to re-access DevTools API");
+      // Try to re-access DevTools API
+      try {
+        const tabId = chrome.devtools.inspectedWindow.tabId;
+        if (tabId && tabId > 0) {
+          console.log("Chrome Extension: DevTools API accessible, updating context");
+          currentTabContext.tabId = tabId;
+          currentTabContext.isValid = true;
+          currentTabContext.lastValidation = Date.now();
+          currentTabContext.consecutiveFailures = 0;
+          resolve(true);
+          return;
+        }
+      } catch (e) {
+        console.warn("Chrome Extension: DevTools API still not accessible:", e);
+      }
+      
+      console.warn("Chrome Extension: Context recovery failed - extension may need manual refresh");
+      resolve(false);
+    }, 1000);
+  });
+}
 
-  if (!isValid) {
-    console.error(
-      "Cannot establish WebSocket: Not connected to a valid browser tools server"
-    );
-    // Set flag to indicate we need to reconnect after a page refresh check
-    reconnectAfterValidation = true;
+// Listen for tab activation changes and other tab events
+if (chrome.tabs && chrome.tabs.onActivated) {
+  chrome.tabs.onActivated.addListener((activeInfo) => {
+    console.log("Chrome Extension: Tab activated:", activeInfo.tabId);
+    
+    // If this is our tab being activated, reset context validation
+    if (activeInfo.tabId === currentTabContext.tabId) {
+      console.log("Chrome Extension: Our tab was activated, resetting context");
+      currentTabContext.lastValidation = 0;
+      attemptContextRecovery();
+    }
+  });
+}
 
-    // Try again after delay
-    wsReconnectTimeout = setTimeout(() => {
-      console.log("Attempting to reconnect WebSocket after validation failure");
+// Listen for tab updates (navigation, etc.)
+if (chrome.tabs && chrome.tabs.onUpdated) {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    // Only care about our tab
+    if (tabId === currentTabContext.tabId) {
+      if (changeInfo.status === 'complete') {
+        console.log("Chrome Extension: Our tab finished loading, resetting context");
+        currentTabContext.lastValidation = 0;
+        attemptContextRecovery();
+      }
+    }
+  });
+}
+
+// Simple periodic connection check - ensures WebSocket is always connected
+function checkConnection() {
+  console.log("Chrome Extension: Periodic connection check...");
+  console.log("Chrome Extension: WebSocket state:", ws ? ws.readyState : "null");
+  console.log("Chrome Extension: Extension context valid:", isExtensionContextValid());
+  
+  // If WebSocket is not connected, try to reconnect
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.log("Chrome Extension: WebSocket not connected, attempting reconnection...");
+    if (!isConnecting) {
       setupWebSocket();
-    }, WS_RECONNECT_DELAY);
+    }
+  } else {
+    // Update last message time on successful check
+    lastMessageTime = Date.now();
+    console.log("Chrome Extension: Connection check passed");
+  }
+}
+
+// Start periodic connection monitoring
+function startConnectionMonitoring() {
+  // Clear any existing interval
+  if (connectionCheckInterval) {
+    clearInterval(connectionCheckInterval);
+  }
+  
+  // Start periodic connection checks
+  connectionCheckInterval = setInterval(checkConnection, CONNECTION_CHECK_INTERVAL);
+  console.log("Chrome Extension: Started connection monitoring every", CONNECTION_CHECK_INTERVAL, "ms");
+}
+
+// Stop connection monitoring
+function stopConnectionMonitoring() {
+  if (connectionCheckInterval) {
+    clearInterval(connectionCheckInterval);
+    connectionCheckInterval = null;
+    console.log("Chrome Extension: Stopped connection monitoring");
+  }
+}
+
+// WebSocket connection setup
+async function setupWebSocket() {
+  // Prevent concurrent connection attempts
+  if (isConnecting) {
+    console.log("Chrome Extension: WebSocket connection attempt already in progress, skipping");
     return;
   }
-
-  // Reset reconnect flag since validation succeeded
-  reconnectAfterValidation = false;
-
-  const wsUrl = `ws://${settings.serverHost}:${settings.serverPort}/extension-ws`;
-  console.log(`Connecting to WebSocket at ${wsUrl}`);
-
+  
+  isConnecting = true;
+  
   try {
+    // Clear any pending timeouts
+    if (wsReconnectTimeout) {
+      clearTimeout(wsReconnectTimeout);
+      wsReconnectTimeout = null;
+    }
+
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+
+    // Close existing WebSocket if any
+    if (ws) {
+      // Set flag to indicate this is an intentional closure
+      intentionalClosure = true;
+      try {
+        ws.close();
+      } catch (e) {
+        console.error("Error closing existing WebSocket:", e);
+      }
+      ws = null;
+      intentionalClosure = false; // Reset flag
+    }
+
+    // Validate server identity before connecting (with caching)
+    console.log("Validating server identity before WebSocket connection...");
+    const now = Date.now();
+    let isValid = false;
+    
+    if (now - lastValidationTime < VALIDATION_CACHE_DURATION) {
+      console.log("Using cached validation result");
+      isValid = true;
+    } else {
+      isValid = await validateServerIdentity();
+      if (isValid) {
+        lastValidationTime = now;
+      }
+    }
+
+    if (!isValid) {
+      console.error(
+        "Cannot establish WebSocket: Not connected to a valid browser tools server"
+      );
+      // Set flag to indicate we need to reconnect after a page refresh check
+      reconnectAfterValidation = true;
+
+      // Try again after delay
+      wsReconnectTimeout = setTimeout(() => {
+        console.log("Attempting to reconnect WebSocket after validation failure");
+        isConnecting = false; // Reset flag before retry
+        setupWebSocket();
+      }, WS_RECONNECT_DELAY);
+      return;
+    }
+
+    // Reset reconnect flag since validation succeeded
+    reconnectAfterValidation = false;
+
+    const wsUrl = `ws://${settings.serverHost}:${settings.serverPort}/extension-ws`;
+    console.log(`Connecting to WebSocket at ${wsUrl}`);
+
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log(`Chrome Extension: WebSocket connected to ${wsUrl}`);
+      isConnecting = false; // Reset flag on successful connection
 
       // Start heartbeat to keep connection alive
       heartbeatInterval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
@@ -958,10 +1185,12 @@ async function setupWebSocket() {
 
     ws.onerror = (error) => {
       console.error(`Chrome Extension: WebSocket error for ${wsUrl}:`, error);
+      isConnecting = false; // Reset flag on error
     };
 
     ws.onclose = (event) => {
-      console.log(`Chrome Extension: WebSocket closed for ${wsUrl}:`, event);
+      console.log(`Chrome Extension: WebSocket closed (code: ${event.code}, reason: ${event.reason})`);
+      isConnecting = false; // Reset flag on close
 
       // Stop heartbeat
       if (heartbeatInterval) {
@@ -971,40 +1200,24 @@ async function setupWebSocket() {
 
       // Don't reconnect if this was an intentional closure
       if (intentionalClosure) {
-        console.log(
-          "Chrome Extension: Intentional WebSocket closure, not reconnecting"
-        );
+        console.log("Chrome Extension: Intentional WebSocket closure, not reconnecting");
         return;
       }
 
-      // Only attempt to reconnect if the closure wasn't intentional
-      // Code 1000 (Normal Closure) and 1001 (Going Away) are normal closures
-      // Code 1005 often happens with clean closures in Chrome
-      const isAbnormalClosure = !(event.code === 1000 || event.code === 1001);
-
-      // Check if this was an abnormal closure or if we need to reconnect after validation
-      if (isAbnormalClosure || reconnectAfterValidation) {
-        console.log(
-          `Chrome Extension: Will attempt to reconnect WebSocket (closure code: ${event.code})`
-        );
-
-        // Try to reconnect after delay
-        wsReconnectTimeout = setTimeout(() => {
-          console.log(
-            `Chrome Extension: Attempting to reconnect WebSocket to ${wsUrl}`
-          );
-          setupWebSocket();
-        }, WS_RECONNECT_DELAY);
-      } else {
-        console.log(
-          `Chrome Extension: Normal WebSocket closure, not reconnecting automatically`
-        );
-      }
+      // For all other cases, try to reconnect after a short delay
+      console.log("Chrome Extension: Will attempt to reconnect WebSocket after delay");
+      wsReconnectTimeout = setTimeout(() => {
+        console.log("Chrome Extension: Attempting to reconnect WebSocket");
+        setupWebSocket();
+      }, WS_RECONNECT_DELAY);
     };
 
     ws.onmessage = async (event) => {
       try {
         const message = JSON.parse(event.data);
+        
+        // Update last message time for all messages
+        lastMessageTime = Date.now();
 
         // Don't log heartbeat responses to reduce noise
         if (message.type !== "heartbeat-response") {
@@ -1112,44 +1325,94 @@ async function setupWebSocket() {
         } else if (message.type === "run-script") {
           console.log("Chrome Extension: Received request to run script");
           console.log("Chrome Extension: Script:", message.script);
+          console.log("Chrome Extension: Request ID:", message.requestId);
+          console.log("Chrome Extension: WebSocket ready state:", ws.readyState);
+          console.log("Chrome Extension: Current tab ID:", chrome.devtools.inspectedWindow.tabId);
           
-          try {
-            // Use chrome.devtools.inspectedWindow.eval to execute the script
-            chrome.devtools.inspectedWindow.eval(
-              message.script,
-              (result, exceptionInfo) => {
-                if (exceptionInfo) {
-                  console.error("Chrome Extension: Script execution failed:", exceptionInfo);
-                  ws.send(
-                    JSON.stringify({
+          // Check if WebSocket is still open before processing
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            console.error("Chrome Extension: WebSocket not available for script response");
+            return;
+          }
+          
+          // Enhanced context validation with recovery attempt
+          let contextValid = validateTabContext();
+          
+          // If context is invalid, try recovery once
+          if (!contextValid && currentTabContext.consecutiveFailures < 3) {
+            console.log("Chrome Extension: Context invalid, attempting recovery...");
+            
+            try {
+              // Use the Promise-based recovery function
+              const recoveryResult = await attemptContextRecovery();
+              
+              if (recoveryResult) {
+                console.log("Chrome Extension: Context recovery successful, proceeding with script");
+                executeScript(message);
+              } else {
+                console.error("Chrome Extension: Context recovery failed");
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  try {
+                    ws.send(JSON.stringify({
                       type: "script-error",
-                      error: exceptionInfo.description || "Script execution failed",
+                      error: `DevTools inspection context not available after recovery attempt - wrong tab or context lost (failures: ${currentTabContext.consecutiveFailures})`,
                       requestId: message.requestId,
-                    })
-                  );
-                } else {
-                  console.log("Chrome Extension: Script executed successfully");
-                  console.log("Chrome Extension: Result:", result);
-                  ws.send(
-                    JSON.stringify({
-                      type: "script-result",
-                      result: result,
-                      requestId: message.requestId,
-                    })
-                  );
+                      contextInfo: {
+                        tabId: currentTabContext.tabId,
+                        consecutiveFailures: currentTabContext.consecutiveFailures,
+                        timeSinceLastSuccess: Date.now() - currentTabContext.lastSuccessfulScript
+                      }
+                    }));
+                  } catch (sendError) {
+                    console.error("Chrome Extension: Failed to send context error:", sendError);
+                  }
                 }
               }
-            );
-          } catch (error) {
-            console.error("Chrome Extension: Error executing script:", error);
-            ws.send(
-              JSON.stringify({
-                type: "script-error",
-                error: error.message,
-                requestId: message.requestId,
-              })
-            );
+            } catch (recoveryError) {
+              console.error("Chrome Extension: Error during context recovery:", recoveryError);
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                try {
+                  ws.send(JSON.stringify({
+                    type: "script-error",
+                    error: `Context recovery failed with error: ${recoveryError.message}`,
+                    requestId: message.requestId,
+                    contextInfo: {
+                      tabId: currentTabContext.tabId,
+                      consecutiveFailures: currentTabContext.consecutiveFailures,
+                      timeSinceLastSuccess: Date.now() - currentTabContext.lastSuccessfulScript
+                    }
+                  }));
+                } catch (sendError) {
+                  console.error("Chrome Extension: Failed to send recovery error:", sendError);
+                }
+              }
+            }
+            return;
           }
+          
+          if (!contextValid) {
+            console.error("Chrome Extension: DevTools inspection context not available");
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              try {
+                ws.send(JSON.stringify({
+                  type: "script-error",
+                  error: `DevTools inspection context not available - wrong tab or context lost (failures: ${currentTabContext.consecutiveFailures})`,
+                  requestId: message.requestId,
+                  contextInfo: {
+                    tabId: currentTabContext.tabId,
+                    consecutiveFailures: currentTabContext.consecutiveFailures,
+                    timeSinceLastSuccess: Date.now() - currentTabContext.lastSuccessfulScript
+                  }
+                }));
+              } catch (sendError) {
+                console.error("Chrome Extension: Failed to send context error:", sendError);
+              }
+            }
+            return;
+          }
+          
+          // Context is valid, execute the script
+          executeScript(message);
         } else if (message.type === "get-current-url") {
           console.log("Chrome Extension: Received request for current URL");
 
@@ -1253,19 +1516,119 @@ async function setupWebSocket() {
   } catch (error) {
     console.error("Error creating WebSocket:", error);
     // Try again after delay
-    wsReconnectTimeout = setTimeout(setupWebSocket, WS_RECONNECT_DELAY);
+    wsReconnectTimeout = setTimeout(() => {
+      isConnecting = false; // Reset flag before retry
+      setupWebSocket();
+    }, WS_RECONNECT_DELAY);
+  } finally {
+    isConnecting = false; // Always reset the flag
   }
 }
 
 // Initialize WebSocket connection when DevTools opens
 setupWebSocket();
 
+// Start periodic connection monitoring to ensure reliable reconnection
+startConnectionMonitoring();
+
+// Add a diagnostic function to test extension health
+function runDiagnostic() {
+  console.log("Chrome Extension: Running diagnostic...");
+  console.log("Chrome Extension: DevTools available:", !!chrome.devtools);
+  console.log("Chrome Extension: InspectedWindow available:", !!chrome.devtools?.inspectedWindow);
+  console.log("Chrome Extension: Tab ID:", chrome.devtools?.inspectedWindow?.tabId);
+  console.log("Chrome Extension: WebSocket state:", ws?.readyState);
+  console.log("Chrome Extension: Extension context valid:", isExtensionContextValid());
+  console.log("Chrome Extension: Tab context valid:", validateTabContext());
+  console.log("Chrome Extension: Connection monitoring active:", !!connectionCheckInterval);
+  console.log("Chrome Extension: Last message time:", new Date(lastMessageTime).toISOString());
+  console.log("Chrome Extension: Is connecting:", isConnecting);
+}
+
+// Run diagnostic every 10 seconds to help identify issues
+setInterval(runDiagnostic, 10000);
+
 // Clean up WebSocket when DevTools closes
 window.addEventListener("unload", () => {
+  console.log("Chrome Extension: DevTools unloading, cleaning up...");
+  
+  // Stop connection monitoring
+  stopConnectionMonitoring();
+  
+  // Close WebSocket
   if (ws) {
+    intentionalClosure = true;  // Mark as intentional to prevent reconnection
     ws.close();
   }
+  
+  // Clear timeouts
   if (wsReconnectTimeout) {
     clearTimeout(wsReconnectTimeout);
   }
+  
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+  }
 });
+
+// Simple and robust script execution function
+function executeScript(message) {
+  console.log("Chrome Extension: Executing script:", message.script);
+  console.log("Chrome Extension: DevTools context available:", !!chrome.devtools.inspectedWindow);
+  console.log("Chrome Extension: Tab ID:", chrome.devtools.inspectedWindow.tabId);
+  
+  try {
+    // Simply execute the script and handle the result
+    chrome.devtools.inspectedWindow.eval(
+      message.script,
+      (result, exceptionInfo) => {
+        console.log("Chrome Extension: Script eval callback called");
+        console.log("Chrome Extension: Result:", result);
+        console.log("Chrome Extension: Exception info:", exceptionInfo);
+        
+        // Ensure we have a valid WebSocket connection
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          console.error("Chrome Extension: WebSocket not available for response");
+          return;
+        }
+        
+        try {
+          if (exceptionInfo) {
+            // Script had an exception - send the error
+            console.log("Chrome Extension: Sending script error response");
+            ws.send(JSON.stringify({
+              type: "script-error",
+              error: exceptionInfo.description || "Script execution failed",
+              requestId: message.requestId
+            }));
+          } else {
+            // Script executed successfully - send the result
+            console.log("Chrome Extension: Sending script result response");
+            ws.send(JSON.stringify({
+              type: "script-result", 
+              result: result,
+              requestId: message.requestId
+            }));
+          }
+        } catch (sendError) {
+          console.error("Chrome Extension: Failed to send script response:", sendError);
+        }
+      }
+    );
+  } catch (error) {
+    // Handle any synchronous errors from eval call itself
+    console.error("Chrome Extension: Error calling eval:", error);
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({
+          type: "script-error",
+          error: `Failed to execute script: ${error.message}`,
+          requestId: message.requestId
+        }));
+      } catch (sendError) {
+        console.error("Chrome Extension: Failed to send error response:", sendError);
+      }
+    }
+  }
+}
