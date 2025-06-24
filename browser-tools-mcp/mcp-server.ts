@@ -275,7 +275,6 @@ server.tool(
         );
 
         const result = await response.json();
-
         if (response.ok) {
           return {
             content: [
@@ -283,7 +282,13 @@ server.tool(
                 type: "text",
                 text: `Successfully saved screenshot${result.path ? ` to: ${result.path}` : ""}`,
               },
-            ],
+              {
+                type: "image",
+                // base 64 encoded representation of screenshot
+                data: await fs.promises.readFile(result.path, 'base64'),
+                mimeType: "image/png",
+              },
+            ]
           };
         } else {
           return {
