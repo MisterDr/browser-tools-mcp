@@ -1,0 +1,10 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+- This repo includes 3 subcomponents:
+    - `browser-tools-mcp` is a MCP client tool. It's used by AI tools. It calls APIs exposed by the `browser-tools-server`
+    - `browser-tools-server` is a MCP server tool. It stores logs, payloads for pages which are sent by the `chrome-extension`. It also processes raw data for Prebid.js.
+    - `chrome-extension` is a extension to collects raw logs and payloads from web pages.
+- Always use context7 to get documents for implementing MCP tools.
