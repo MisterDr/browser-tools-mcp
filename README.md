@@ -11,6 +11,11 @@ Read our [docs](https://browsertools.agentdesk.ai/) for the full installation, q
 Check out our project roadmap here: [Github Roadmap / Project Board](https://github.com/orgs/AgentDeskAI/projects/1/views/1)
 
 ## Updates
+v1.4.1 is out! Here's a comprehensive breakdown of the latest updates:
+
+### 🚀 New Features in v1.4.1:
+- **Base64 Image response***: Added Base64 encoded image reponse
+
 v1.4.0 is out! Here's a comprehensive breakdown of the latest updates:
 
 ### 🚀 New Features in v1.4.0:
