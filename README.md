@@ -11,7 +11,6 @@ Read our [docs](https://browsertools.agentdesk.ai/) for the full installation, q
 Check out our project roadmap here: [Github Roadmap / Project Board](https://github.com/orgs/AgentDeskAI/projects/1/views/1)
 
 ## Updates
-
 v1.4.0 is out! Here's a comprehensive breakdown of the latest updates:
 
 ### 🚀 New Features in v1.4.0:
@@ -19,6 +18,11 @@ v1.4.0 is out! Here's a comprehensive breakdown of the latest updates:
 - **Page Refresh Control**: Added `refreshPage` MCP tool for programmatic page refreshing
 - **Enhanced Server Identity**: Improved server version reporting and identity validation
 - **Extended MCP Capabilities**: Expanded the range of browser interactions available to AI tools
+
+### 🚀 New Features in v1.3.0:
+- **Configurable screenshot save path** – the `takeScreenshot` MCP tool now accepts an optional `path` parameter so you can store PNGs anywhere (e.g. `await tools.takeScreenshot({ path: "F:/screens/home.png" })`).
+- **Works with DevTools closed** – a background WebSocket handler in the Chrome extension lets you capture screenshots even after you close or undock the BrowserTools panel.
+- Misc. merge-conflict clean-ups and stability improvements.
 
 ### 🔧 Previous Features (v1.2.0):
 - You can now enable "Allow Auto-Paste into Cursor" within the DevTools panel. Screenshots will be automatically pasted into Cursor (just make sure to focus/click into the Agent input field in Cursor, otherwise it won't work!)

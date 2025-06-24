@@ -1,0 +1,23 @@
+To use Browser Tools MCP in Cursor, you have two options:
+
+Option 1 (Recommended - Using NPX with cmd):
+In Cursor MCP settings, use:
+cmd /c npx @agentdeskai/browser-tools-mcp@1.1.0
+
+Make sure the Browser Tools Server is running first with:
+cmd /c npx @agentdeskai/browser-tools-server
+
+Option 2 (Using direct paths):
+In Cursor MCP settings, use:
+"C:\Program Files\nodejs\node.exe" "F:\Projects\MCP-Servers\browser-tools-mcp\browser-tools-mcp\dist\mcp-server.js"
+
+Make sure the Browser Tools Server is running first with:
+"C:\Program Files\nodejs\node.exe" "F:\Projects\MCP-Servers\browser-tools-mcp\browser-tools-server\dist\browser-connector.js"
+
+Or use the provided scripts to run both at once:
+- run-browser-tools.bat (double-click)
+- .\run-browser-tools.ps1 (in PowerShell)
+
+Note: Both scripts now have options to use either NPX or direct paths.
+- In run-browser-tools.ps1: Set $useNpx to $true or $false
+- In run-browser-tools.bat: Set USE_NPX to 1 or 0 
