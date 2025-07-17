@@ -772,10 +772,8 @@ chrome.devtools.panels.elements.onSelectionChanged.addListener(() => {
 let ws = null;
 let wsReconnectTimeout = null;
 let heartbeatInterval = null;
-let connectionCheckInterval = null;
-const WS_RECONNECT_DELAY = 3000; // 3 seconds (reduced for faster reconnection)
-const HEARTBEAT_INTERVAL = 15000; // 15 seconds (reduced for better monitoring)
-const CONNECTION_CHECK_INTERVAL = 10000; // 10 seconds (periodic connection check)
+const WS_RECONNECT_DELAY = 3000; // Reduced to 3 seconds for faster recovery
+const HEARTBEAT_INTERVAL = 20000; // Increased frequency to 20 seconds
 // Add a flag to track if we need to reconnect after identity validation
 let reconnectAfterValidation = false;
 // Track if we're intentionally closing the connection
@@ -785,22 +783,35 @@ let isConnecting = false;
 // Track last successful validation time to avoid excessive validations
 let lastValidationTime = 0;
 const VALIDATION_CACHE_DURATION = 30000; // Cache validation for 30 seconds
-// Track last successful message to detect stale connections
-let lastMessageTime = 0;
+
+// Track heartbeat failures
+let heartbeatFailures = 0;
+const MAX_HEARTBEAT_FAILURES = 3;
 
 // Function to send a heartbeat to keep the WebSocket connection alive
 function sendHeartbeat() {
   if (ws && ws.readyState === WebSocket.OPEN) {
     try {
-      ws.send(JSON.stringify({ type: "heartbeat" }));
+      ws.send(JSON.stringify({ type: "heartbeat", timestamp: Date.now() }));
+      // Reset failure count on successful send
+      heartbeatFailures = 0;
     } catch (error) {
       console.error("Chrome Extension: Failed to send heartbeat:", error);
-      // If heartbeat fails, the connection might be broken
-      if (ws.readyState !== WebSocket.OPEN) {
+      heartbeatFailures++;
+      
+      // If we've had multiple heartbeat failures, force reconnection
+      if (heartbeatFailures >= MAX_HEARTBEAT_FAILURES) {
+        console.log(`Chrome Extension: Too many heartbeat failures (${heartbeatFailures}), forcing reconnection`);
+        heartbeatFailures = 0;
+        setupWebSocket();
+      } else if (ws.readyState !== WebSocket.OPEN) {
         console.log("Chrome Extension: WebSocket connection appears broken, will reconnect");
         setupWebSocket();
       }
     }
+  } else {
+    console.log("Chrome Extension: WebSocket not available for heartbeat, attempting reconnection");
+    setupWebSocket();
   }
 }
 
@@ -838,7 +849,8 @@ let currentTabContext = {
   isValid: true,
   lastValidation: Date.now(),
   consecutiveFailures: 0,
-  lastSuccessfulScript: Date.now()
+  lastSuccessfulScript: Date.now(),
+  maxFailures: 5 // Increased threshold before giving up
 };
 
 // Function to validate and update tab context
@@ -978,46 +990,6 @@ if (chrome.tabs && chrome.tabs.onUpdated) {
       }
     }
   });
-}
-
-// Simple periodic connection check - ensures WebSocket is always connected
-function checkConnection() {
-  console.log("Chrome Extension: Periodic connection check...");
-  console.log("Chrome Extension: WebSocket state:", ws ? ws.readyState : "null");
-  console.log("Chrome Extension: Extension context valid:", isExtensionContextValid());
-  
-  // If WebSocket is not connected, try to reconnect
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    console.log("Chrome Extension: WebSocket not connected, attempting reconnection...");
-    if (!isConnecting) {
-      setupWebSocket();
-    }
-  } else {
-    // Update last message time on successful check
-    lastMessageTime = Date.now();
-    console.log("Chrome Extension: Connection check passed");
-  }
-}
-
-// Start periodic connection monitoring
-function startConnectionMonitoring() {
-  // Clear any existing interval
-  if (connectionCheckInterval) {
-    clearInterval(connectionCheckInterval);
-  }
-  
-  // Start periodic connection checks
-  connectionCheckInterval = setInterval(checkConnection, CONNECTION_CHECK_INTERVAL);
-  console.log("Chrome Extension: Started connection monitoring every", CONNECTION_CHECK_INTERVAL, "ms");
-}
-
-// Stop connection monitoring
-function stopConnectionMonitoring() {
-  if (connectionCheckInterval) {
-    clearInterval(connectionCheckInterval);
-    connectionCheckInterval = null;
-    console.log("Chrome Extension: Stopped connection monitoring");
-  }
 }
 
 // WebSocket connection setup
@@ -1189,7 +1161,7 @@ async function setupWebSocket() {
     };
 
     ws.onclose = (event) => {
-      console.log(`Chrome Extension: WebSocket closed (code: ${event.code}, reason: ${event.reason})`);
+      console.log(`Chrome Extension: WebSocket closed for ${wsUrl}:`, event);
       isConnecting = false; // Reset flag on close
 
       // Stop heartbeat
@@ -1200,24 +1172,41 @@ async function setupWebSocket() {
 
       // Don't reconnect if this was an intentional closure
       if (intentionalClosure) {
-        console.log("Chrome Extension: Intentional WebSocket closure, not reconnecting");
+        console.log(
+          "Chrome Extension: Intentional WebSocket closure, not reconnecting"
+        );
         return;
       }
 
-      // For all other cases, try to reconnect after a short delay
-      console.log("Chrome Extension: Will attempt to reconnect WebSocket after delay");
-      wsReconnectTimeout = setTimeout(() => {
-        console.log("Chrome Extension: Attempting to reconnect WebSocket");
-        setupWebSocket();
-      }, WS_RECONNECT_DELAY);
+      // Only attempt to reconnect if the closure wasn't intentional
+      // Code 1000 (Normal Closure) and 1001 (Going Away) are normal closures
+      // Code 1005 often happens with clean closures in Chrome
+      const isAbnormalClosure = !(event.code === 1000 || event.code === 1001);
+
+      // Check if this was an abnormal closure or if we need to reconnect after validation
+      if (isAbnormalClosure || reconnectAfterValidation) {
+        console.log(
+          `Chrome Extension: Will attempt to reconnect WebSocket (closure code: ${event.code})`
+        );
+
+        // Try to reconnect after delay
+        wsReconnectTimeout = setTimeout(() => {
+          console.log(
+            `Chrome Extension: Attempting to reconnect WebSocket to ${wsUrl}`
+          );
+          // Flag will be reset when setupWebSocket starts
+          setupWebSocket();
+        }, WS_RECONNECT_DELAY);
+      } else {
+        console.log(
+          `Chrome Extension: Normal WebSocket closure, not reconnecting automatically`
+        );
+      }
     };
 
     ws.onmessage = async (event) => {
       try {
         const message = JSON.parse(event.data);
-        
-        // Update last message time for all messages
-        lastMessageTime = Date.now();
 
         // Don't log heartbeat responses to reduce noise
         if (message.type !== "heartbeat-response") {
@@ -1338,8 +1327,8 @@ async function setupWebSocket() {
           // Enhanced context validation with recovery attempt
           let contextValid = validateTabContext();
           
-          // If context is invalid, try recovery once
-          if (!contextValid && currentTabContext.consecutiveFailures < 3) {
+          // If context is invalid, try recovery (increased threshold)
+          if (!contextValid && currentTabContext.consecutiveFailures < currentTabContext.maxFailures) {
             console.log("Chrome Extension: Context invalid, attempting recovery...");
             
             try {
@@ -1355,7 +1344,7 @@ async function setupWebSocket() {
                   try {
                     ws.send(JSON.stringify({
                       type: "script-error",
-                      error: `DevTools inspection context not available after recovery attempt - wrong tab or context lost (failures: ${currentTabContext.consecutiveFailures})`,
+                      error: `DevTools inspection context not available after recovery attempt - wrong tab or context lost (failures: ${currentTabContext.consecutiveFailures}/${currentTabContext.maxFailures})`,
                       requestId: message.requestId,
                       contextInfo: {
                         tabId: currentTabContext.tabId,
@@ -1396,7 +1385,7 @@ async function setupWebSocket() {
               try {
                 ws.send(JSON.stringify({
                   type: "script-error",
-                  error: `DevTools inspection context not available - wrong tab or context lost (failures: ${currentTabContext.consecutiveFailures})`,
+                  error: `DevTools inspection context not available - wrong tab or context lost (failures: ${currentTabContext.consecutiveFailures}/${currentTabContext.maxFailures})`,
                   requestId: message.requestId,
                   contextInfo: {
                     tabId: currentTabContext.tabId,
@@ -1505,6 +1494,18 @@ async function setupWebSocket() {
           };
 
           requestCurrentUrl();
+        } else if (message.type === "ping") {
+          console.log("Chrome Extension: Received ping message");
+          // Respond with pong
+          try {
+            ws.send(JSON.stringify({
+              type: "pong",
+              timestamp: Date.now()
+            }));
+            console.log("Chrome Extension: Sent pong response");
+          } catch (error) {
+            console.error("Chrome Extension: Error sending pong response:", error);
+          }
         }
       } catch (error) {
         console.error(
@@ -1528,9 +1529,6 @@ async function setupWebSocket() {
 // Initialize WebSocket connection when DevTools opens
 setupWebSocket();
 
-// Start periodic connection monitoring to ensure reliable reconnection
-startConnectionMonitoring();
-
 // Add a diagnostic function to test extension health
 function runDiagnostic() {
   console.log("Chrome Extension: Running diagnostic...");
@@ -1540,9 +1538,6 @@ function runDiagnostic() {
   console.log("Chrome Extension: WebSocket state:", ws?.readyState);
   console.log("Chrome Extension: Extension context valid:", isExtensionContextValid());
   console.log("Chrome Extension: Tab context valid:", validateTabContext());
-  console.log("Chrome Extension: Connection monitoring active:", !!connectionCheckInterval);
-  console.log("Chrome Extension: Last message time:", new Date(lastMessageTime).toISOString());
-  console.log("Chrome Extension: Is connecting:", isConnecting);
 }
 
 // Run diagnostic every 10 seconds to help identify issues
@@ -1550,85 +1545,215 @@ setInterval(runDiagnostic, 10000);
 
 // Clean up WebSocket when DevTools closes
 window.addEventListener("unload", () => {
-  console.log("Chrome Extension: DevTools unloading, cleaning up...");
-  
-  // Stop connection monitoring
-  stopConnectionMonitoring();
-  
-  // Close WebSocket
   if (ws) {
-    intentionalClosure = true;  // Mark as intentional to prevent reconnection
     ws.close();
   }
-  
-  // Clear timeouts
   if (wsReconnectTimeout) {
     clearTimeout(wsReconnectTimeout);
   }
-  
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-  }
 });
 
-// Simple and robust script execution function
+// CSP-safe script execution function using chrome.scripting API
 function executeScript(message) {
   console.log("Chrome Extension: Executing script:", message.script);
   console.log("Chrome Extension: DevTools context available:", !!chrome.devtools.inspectedWindow);
   console.log("Chrome Extension: Tab ID:", chrome.devtools.inspectedWindow.tabId);
   
+  const tabId = chrome.devtools.inspectedWindow.tabId;
+  
+  if (!tabId) {
+    console.error("Chrome Extension: No tab ID available");
+    sendScriptError(message.requestId, "No tab ID available");
+    return;
+  }
+  
   try {
-    // Simply execute the script and handle the result
-    chrome.devtools.inspectedWindow.eval(
-      message.script,
-      (result, exceptionInfo) => {
-        console.log("Chrome Extension: Script eval callback called");
-        console.log("Chrome Extension: Result:", result);
-        console.log("Chrome Extension: Exception info:", exceptionInfo);
-        
-        // Ensure we have a valid WebSocket connection
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          console.error("Chrome Extension: WebSocket not available for response");
+    // First try CSP-safe chrome.scripting.executeScript (bypasses CSP)
+    if (chrome.scripting && chrome.scripting.executeScript) {
+      console.log("Chrome Extension: Using chrome.scripting.executeScript (CSP-safe)");
+      
+      // Use func parameter with Function constructor to avoid eval and CSP issues
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: function(scriptCode) {
+          try {
+            // Direct execution for common patterns to avoid CSP issues
+            if (scriptCode.trim() === 'document.title') {
+              return document.title;
+            }
+            if (scriptCode.trim() === 'window.location.href') {
+              return window.location.href;
+            }
+            if (scriptCode.trim() === 'window.location') {
+              return window.location.toString();
+            }
+            
+            // DOM queries for buttons and clickable elements
+            if (scriptCode.includes('querySelector') && scriptCode.includes('button')) {
+              const buttons = document.querySelectorAll('button, a, [role="button"]');
+              const targetButton = Array.from(buttons).find(btn => 
+                btn.textContent && btn.textContent.toLowerCase().includes('start with a diamond')
+              );
+              if (scriptCode.includes('.textContent')) {
+                return targetButton ? targetButton.textContent : null;
+              }
+              if (scriptCode.includes('.click()')) {
+                if (targetButton) {
+                  targetButton.click();
+                  return 'Button clicked';
+                }
+                return 'Button not found';
+              }
+              return targetButton || null;
+            }
+            
+            // Generic querySelector pattern
+            if (scriptCode.includes('querySelector(')) {
+              const match = scriptCode.match(/querySelector\(([^)]+)\)/);
+              if (match) {
+                const selector = match[1].replace(/['"]/g, '');
+                const element = document.querySelector(selector);
+                if (scriptCode.includes('.textContent')) {
+                  return element ? element.textContent : null;
+                }
+                if (scriptCode.includes('.click()')) {
+                  if (element) {
+                    element.click();
+                    return 'Element clicked';
+                  }
+                  return 'Element not found';
+                }
+                return element || null;
+              }
+            }
+            
+            if (scriptCode.trim().startsWith('console.log(')) {
+              // Execute console.log and return undefined
+              const match = scriptCode.match(/console\.log\(([^)]+)\)/);
+              if (match) {
+                const arg = match[1];
+                if (arg.includes('document.title')) {
+                  console.log(document.title);
+                } else if (arg.includes('window.location')) {
+                  console.log(window.location.href);
+                } else {
+                  console.log(arg.replace(/['"]/g, ''));
+                }
+                return undefined;
+              }
+            }
+            
+            // Try Function constructor as fallback
+            try {
+              const fn = new Function('return (' + scriptCode + ')');
+              return fn();
+            } catch (fnError) {
+              throw new Error(`Script execution failed: ${fnError.message}`);
+            }
+          } catch (error) {
+            throw new Error(`Script execution failed: ${error.message}`);
+          }
+        },
+        args: [message.script]
+      }, (results) => {
+        if (chrome.runtime.lastError) {
+          console.error("Chrome Extension: Scripting error:", chrome.runtime.lastError);
+          // Fallback to devtools.inspectedWindow.eval if scripting fails
+          fallbackToDevToolsEval(message);
           return;
         }
         
-        try {
-          if (exceptionInfo) {
-            // Script had an exception - send the error
-            console.log("Chrome Extension: Sending script error response");
-            ws.send(JSON.stringify({
-              type: "script-error",
-              error: exceptionInfo.description || "Script execution failed",
-              requestId: message.requestId
-            }));
+        if (results && results.length > 0) {
+          const result = results[0];
+          console.log("Chrome Extension: Script result:", result);
+          
+          if (result.error) {
+            sendScriptError(message.requestId, result.error);
           } else {
-            // Script executed successfully - send the result
-            console.log("Chrome Extension: Sending script result response");
-            ws.send(JSON.stringify({
-              type: "script-result", 
-              result: result,
-              requestId: message.requestId
-            }));
+            sendScriptSuccess(message.requestId, result.result);
           }
-        } catch (sendError) {
-          console.error("Chrome Extension: Failed to send script response:", sendError);
+        } else {
+          sendScriptError(message.requestId, "No results returned");
+        }
+      });
+    } else {
+      // Fallback to devtools.inspectedWindow.eval (may be blocked by CSP)
+      console.log("Chrome Extension: chrome.scripting not available, falling back to devtools.inspectedWindow.eval");
+      fallbackToDevToolsEval(message);
+    }
+  } catch (error) {
+    console.error("Chrome Extension: Error in executeScript:", error);
+    sendScriptError(message.requestId, `Script execution failed: ${error.message}`);
+  }
+}
+
+// Fallback to devtools.inspectedWindow.eval (original method)
+function fallbackToDevToolsEval(message) {
+  console.log("Chrome Extension: Falling back to devtools.inspectedWindow.eval");
+  
+  try {
+    chrome.devtools.inspectedWindow.eval(
+      message.script,
+      (result, exceptionInfo) => {
+        console.log("Chrome Extension: DevTools eval callback called");
+        console.log("Chrome Extension: Result:", result);
+        console.log("Chrome Extension: Exception info:", exceptionInfo);
+        
+        if (exceptionInfo) {
+          // Check if it's a CSP error
+          if (exceptionInfo.description && exceptionInfo.description.includes("Content Security Policy")) {
+            console.error("Chrome Extension: CSP blocked script execution");
+            sendScriptError(message.requestId, "Script blocked by Content Security Policy - consider using a different approach");
+          } else {
+            sendScriptError(message.requestId, exceptionInfo.description || "Script execution failed");
+          }
+        } else {
+          sendScriptSuccess(message.requestId, result);
         }
       }
     );
   } catch (error) {
-    // Handle any synchronous errors from eval call itself
-    console.error("Chrome Extension: Error calling eval:", error);
-    
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      try {
-        ws.send(JSON.stringify({
-          type: "script-error",
-          error: `Failed to execute script: ${error.message}`,
-          requestId: message.requestId
-        }));
-      } catch (sendError) {
-        console.error("Chrome Extension: Failed to send error response:", sendError);
-      }
-    }
+    console.error("Chrome Extension: Error in fallbackToDevToolsEval:", error);
+    sendScriptError(message.requestId, `DevTools eval failed: ${error.message}`);
+  }
+}
+
+// Helper function to send script success response
+function sendScriptSuccess(requestId, result) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.error("Chrome Extension: WebSocket not available for response");
+    return;
+  }
+  
+  try {
+    console.log("Chrome Extension: Sending script success response");
+    currentTabContext.lastSuccessfulScript = Date.now();
+    currentTabContext.consecutiveFailures = 0;
+    ws.send(JSON.stringify({
+      type: "script-result", 
+      result: result,
+      requestId: requestId
+    }));
+  } catch (sendError) {
+    console.error("Chrome Extension: Failed to send script success response:", sendError);
+  }
+}
+
+// Helper function to send script error response
+function sendScriptError(requestId, errorMessage) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.error("Chrome Extension: WebSocket not available for error response");
+    return;
+  }
+  
+  try {
+    console.log("Chrome Extension: Sending script error response");
+    ws.send(JSON.stringify({
+      type: "script-error",
+      error: errorMessage,
+      requestId: requestId
+    }));
+  } catch (sendError) {
+    console.error("Chrome Extension: Failed to send script error response:", sendError);
   }
 }

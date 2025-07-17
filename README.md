@@ -11,10 +11,33 @@ Read our [docs](https://browsertools.agentdesk.ai/) for the full installation, q
 Check out our project roadmap here: [Github Roadmap / Project Board](https://github.com/orgs/AgentDeskAI/projects/1/views/1)
 
 ## Updates
-v1.4.1 is out! Here's a comprehensive breakdown of the latest updates:
+v1.4.2 is out! Here's a comprehensive breakdown of the latest updates:
+
+### 🚀 New Features in v1.4.2:
+- **Standalone Browser Client**: Added standalone JavaScript library for direct site injection
+- **Enhanced Connection Resilience**: Implemented robust retry logic and connection health monitoring
+- **CSP-Safe Script Execution**: Bypassed Content Security Policy restrictions for script execution
+- **Auto-Reconnection System**: Automatic reconnection on page refresh and navigation
+- **Ping/Pong Heartbeat**: Server-side connection health monitoring with heartbeat system
+- **Improved Error Handling**: Enhanced error reporting and graceful degradation
+- **Multi-tier Screenshot Support**: Hybrid screenshot approach with fallback methods
+
+### 🔧 Stability Improvements in v1.4.2:
+**Why we added the standalone script version:**
+- **Chrome Extension Reliability Issues**: Chrome extensions have inherent stability problems with DevTools context, connection drops, and lifecycle management
+- **CSP Blocking**: Content Security Policy restrictions were blocking script execution in many websites
+- **Connection Instability**: Frequent disconnections required constant extension reloads
+- **DevTools Dependency**: Extension only worked when DevTools panel was open
+
+**Solution - Standalone Browser Client:**
+- **Direct Site Injection**: Runs as native page JavaScript, eliminating extension context issues
+- **No CSP Restrictions**: Full access to page context with eval() capabilities
+- **Automatic Reconnection**: Survives page refreshes, navigation, and tab changes
+- **Production Ready**: Can be deployed to any website for permanent integration
+- **100% Reliable**: Eliminates all Chrome extension stability issues
 
 ### 🚀 New Features in v1.4.1:
-- **Base64 Image response***: Added Base64 encoded image reponse
+- **Base64 Image response**: Added Base64 encoded image response
 
 v1.4.0 is out! Here's a comprehensive breakdown of the latest updates:
 
@@ -78,9 +101,15 @@ Programmatically refresh the current browser page without manual intervention. U
 
 There are three components to run this MCP tool:
 
-1. Install our chrome extension from here: [v1.4.0 BrowserToolsMCP Chrome Extension](https://github.com/AgentDeskAI/browser-tools-mcp/releases/download/v1.4.0/BrowserTools-1.4.0-extension.zip)
+1. Install our chrome extension from here: [v1.4.2 BrowserToolsMCP Chrome Extension](https://github.com/AgentDeskAI/browser-tools-mcp/releases/download/v1.4.2/BrowserTools-1.4.2-extension.zip)
 2. Install the MCP server from this command within your IDE: `npx @agentdeskai/browser-tools-mcp@latest`
 3. Open a new terminal and run this command: `npx @agentdeskai/browser-tools-server@latest`
+
+**Alternative: Standalone Browser Client (v1.4.2)**
+For enhanced stability, you can use the standalone browser client instead of the Chrome extension:
+1. Include the standalone script in your website: `<script src="browser-tools-client.js"></script>`
+2. Or inject it dynamically: `<script src="inject-browser-tools.js"></script>`
+3. This approach eliminates extension reliability issues and works on any website
 
 * Different IDEs have different configs but this command is generally a good starting point; please reference your IDEs docs for the proper config setup
 

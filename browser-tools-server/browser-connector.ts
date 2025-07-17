@@ -525,7 +525,7 @@ app.get("/.identity", (req, res) => {
   res.json({
     port: PORT,
     name: "browser-tools-server",
-    version: "1.4.1",
+    version: "1.4.2",
     signature: "mcp-browser-connector-24x7",
   });
 });
@@ -613,6 +613,12 @@ export class BrowserConnector {
   private app: express.Application;
   private server: any;
   private urlRequestCallbacks: Map<string, (url: string) => void> = new Map();
+  private pingInterval: NodeJS.Timeout | null = null;
+  private connectionHealthCheck: NodeJS.Timeout | null = null;
+  private lastPongReceived: number = 0;
+  private connectionHealthy: boolean = false;
+  private connectionRetryAttempts: number = 0;
+  private maxConnectionRetries: number = 5;
 
   constructor(app: express.Application, server: any) {
     this.app = app;
@@ -689,6 +695,12 @@ export class BrowserConnector {
     this.wss.on("connection", (ws: WebSocket) => {
       console.log("Chrome extension connected via WebSocket");
       this.activeConnection = ws;
+      this.connectionHealthy = true;
+      this.lastPongReceived = Date.now();
+      this.connectionRetryAttempts = 0; // Reset retry attempts on successful connection
+      
+      // Start ping/pong mechanism
+      this.startPingPong();
 
       ws.on("message", (message: string | Buffer | ArrayBuffer | Buffer[]) => {
         try {
@@ -821,6 +833,21 @@ export class BrowserConnector {
               );
               screenshotCallbacks.clear(); // Clear all callbacks
             }
+          }
+          // Handle heartbeat messages
+          else if (data.type === "heartbeat") {
+            console.log("Received heartbeat from client");
+            // Respond with heartbeat confirmation
+            ws.send(JSON.stringify({ 
+              type: "heartbeat-response", 
+              timestamp: Date.now() 
+            }));
+          }
+          // Handle pong responses
+          else if (data.type === "pong") {
+            console.log("Received pong from client");
+            this.lastPongReceived = Date.now();
+            this.connectionHealthy = true;
           } else {
             console.log("Unhandled message type:", data.type);
           }
@@ -833,6 +860,19 @@ export class BrowserConnector {
         console.log("Chrome extension disconnected");
         if (this.activeConnection === ws) {
           this.activeConnection = null;
+          this.connectionHealthy = false;
+          this.stopPingPong();
+          this.connectionRetryAttempts++;
+          
+          // Log connection retry attempts
+          console.log(`Connection closed, retry attempts: ${this.connectionRetryAttempts}/${this.maxConnectionRetries}`);
+        }
+      });
+      
+      ws.on("error", (error) => {
+        console.error("WebSocket error:", error);
+        if (this.activeConnection === ws) {
+          this.connectionHealthy = false;
         }
       });
     });
@@ -1329,50 +1369,60 @@ export class BrowserConnector {
   async refreshPage(req: express.Request, res: express.Response) {
     console.log("Browser Connector: Starting refreshPage method");
 
-    if (!this.activeConnection) {
-      console.log(
-        "Browser Connector: No active WebSocket connection to Chrome extension"
-      );
-      return res.status(503).json({ error: "Chrome extension not connected" });
-    }
+    // Retry logic for connection resilience
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second between retries
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`Browser Connector: Refresh page attempt ${attempt}/${maxRetries}`);
+      
+      // Check connection availability and health
+      if (!this.isConnectionHealthy()) {
+        console.log("Browser Connector: Connection not healthy, waiting for reconnection...");
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+          continue;
+        }
+        return res.status(503).json({ error: "Chrome extension not connected or unhealthy after retries" });
+      }
 
-    try {
-      // Send refresh request to extension
-      const message = JSON.stringify({
-        type: "refresh-page",
-      });
-      console.log(
-        `Browser Connector: Sending WebSocket message to extension:`,
-        message
-      );
-      this.activeConnection.send(message);
+      try {
+        // Send refresh request to extension
+        const message = JSON.stringify({
+          type: "refresh-page",
+        });
+        console.log(`Browser Connector: Sending WebSocket message to extension:`, message);
+        
+        this.activeConnection!.send(message);
+        console.log("Browser Connector: Refresh message sent successfully");
 
-      res.json({
-        success: true,
-        message: "Page refresh request sent successfully",
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      console.error(
-        "Browser Connector: Error refreshing page:",
-        errorMessage
-      );
-      res.status(500).json({
-        error: errorMessage,
-      });
+        res.json({
+          success: true,
+          message: "Page refresh request sent successfully",
+        });
+        return; // Success, exit retry loop
+        
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`Browser Connector: Error refreshing page (attempt ${attempt}):`, errorMessage);
+        
+        // If this is the last attempt, return error
+        if (attempt === maxRetries) {
+          res.status(500).json({
+            error: `Page refresh failed after ${maxRetries} attempts: ${errorMessage}`,
+          });
+          return;
+        }
+        
+        // Otherwise, wait and retry
+        console.log(`Browser Connector: Retrying in ${retryDelay * attempt}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+      }
     }
   }
 
   async runScript(req: express.Request, res: express.Response) {
     console.log("Browser Connector: Starting runScript method");
-
-    if (!this.activeConnection) {
-      console.log(
-        "Browser Connector: No active WebSocket connection to Chrome extension"
-      );
-      return res.status(503).json({ error: "Chrome extension not connected" });
-    }
 
     const { script } = req.body;
     
@@ -1380,74 +1430,114 @@ export class BrowserConnector {
       return res.status(400).json({ error: "Script is required" });
     }
 
-    try {
-      console.log("Browser Connector: Executing script:", script);
-      const requestId = Date.now().toString();
-      console.log("Browser Connector: Generated request ID:", requestId);
+    // Retry logic for connection resilience
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second between retries
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`Browser Connector: Script execution attempt ${attempt}/${maxRetries}`);
       
-      // Check WebSocket connection state
-      console.log("Browser Connector: WebSocket state:", this.activeConnection.readyState);
-      
-      // Create a promise to wait for the script execution result
-      const scriptPromise = new Promise<{ output: any; error?: string }>((resolve, reject) => {
-        // Store callback in the global scriptCallbacks map
-        scriptCallbacks.set(requestId, { resolve, reject });
-        console.log("Browser Connector: Stored callback for request ID:", requestId);
-        console.log("Browser Connector: Current callback count:", scriptCallbacks.size);
-        
-        // Set timeout to clean up if we don't get a response
-        setTimeout(() => {
-          if (scriptCallbacks.has(requestId)) {
-            console.log("Browser Connector: Script execution timed out for request ID:", requestId);
-            scriptCallbacks.delete(requestId);
-            reject(new Error("Script execution timed out"));
-          }
-        }, 15000); // Increased to 15 second timeout
-      });
+      // Check connection availability and health
+      if (!this.isConnectionHealthy()) {
+        console.log("Browser Connector: Connection not healthy, waiting for reconnection...");
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+          continue;
+        }
+        return res.status(503).json({ error: "Chrome extension not connected or unhealthy after retries" });
+      }
 
-      // Send script execution request to extension
-      const message = JSON.stringify({
-        type: "run-script",
-        script: script,
-        requestId: requestId,
-      });
-      console.log(
-        `Browser Connector: Sending WebSocket message to extension:`,
-        message
-      );
-      
       try {
-        this.activeConnection.send(message);
-        console.log("Browser Connector: Message sent successfully");
-      } catch (sendError) {
-        console.error("Browser Connector: Error sending WebSocket message:", sendError);
-        scriptCallbacks.delete(requestId);
-        throw sendError;
-      }
+        console.log("Browser Connector: Executing script:", script);
+        const requestId = `${Date.now()}-${attempt}`;
+        console.log("Browser Connector: Generated request ID:", requestId);
+        
+        // Create a promise to wait for the script execution result
+        const scriptPromise = new Promise<{ output: any; error?: string }>((resolve, reject) => {
+          // Store callback in the global scriptCallbacks map
+          scriptCallbacks.set(requestId, { resolve, reject });
+          console.log("Browser Connector: Stored callback for request ID:", requestId);
+          console.log("Browser Connector: Current callback count:", scriptCallbacks.size);
+          
+          // Set timeout to clean up if we don't get a response
+          const timeoutId = setTimeout(() => {
+            if (scriptCallbacks.has(requestId)) {
+              console.log("Browser Connector: Script execution timed out for request ID:", requestId);
+              scriptCallbacks.delete(requestId);
+              reject(new Error("Script execution timed out - no response from Chrome extension"));
+            }
+          }, 15000); // Reduced timeout to 15 seconds for faster retry
+          
+          // Store timeout ID for cleanup
+          const originalCallback = scriptCallbacks.get(requestId);
+          if (originalCallback) {
+            (originalCallback as any).timeoutId = timeoutId;
+          }
+        });
 
-      // Wait for script execution result
-      const result = await scriptPromise;
-      
-      if (result.error) {
-        res.status(500).json({
-          error: result.error,
+        // Send script execution request to extension
+        const message = JSON.stringify({
+          type: "run-script",
+          script: script,
+          requestId: requestId,
         });
-      } else {
-        res.json({
-          success: true,
-          output: result.output,
-        });
+        console.log(`Browser Connector: Sending WebSocket message to extension:`, message);
+        
+        try {
+          this.activeConnection!.send(message);
+          console.log("Browser Connector: Message sent successfully");
+        } catch (sendError) {
+          console.error("Browser Connector: Error sending WebSocket message:", sendError);
+          scriptCallbacks.delete(requestId);
+          
+          // If this is the last attempt, return error
+          if (attempt === maxRetries) {
+            throw sendError;
+          }
+          
+          // Otherwise, continue to next attempt
+          console.log("Browser Connector: Retrying after send error...");
+          await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+          continue;
+        }
+
+        // Wait for script execution result
+        const result = await scriptPromise;
+        
+        // Clear timeout if successful
+        const callback = scriptCallbacks.get(requestId);
+        if (callback && (callback as any).timeoutId) {
+          clearTimeout((callback as any).timeoutId);
+        }
+        
+        if (result.error) {
+          res.status(500).json({
+            error: result.error,
+          });
+        } else {
+          res.json({
+            success: true,
+            output: result.output,
+          });
+        }
+        return; // Success, exit retry loop
+        
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`Browser Connector: Error running script (attempt ${attempt}):`, errorMessage);
+        
+        // If this is the last attempt, return error
+        if (attempt === maxRetries) {
+          res.status(500).json({
+            error: `Script execution failed after ${maxRetries} attempts: ${errorMessage}`,
+          });
+          return;
+        }
+        
+        // Otherwise, wait and retry
+        console.log(`Browser Connector: Retrying in ${retryDelay * attempt}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
       }
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      console.error(
-        "Browser Connector: Error running script:",
-        errorMessage
-      );
-      res.status(500).json({
-        error: errorMessage,
-      });
     }
   }
 
@@ -1490,6 +1580,9 @@ export class BrowserConnector {
         resolve();
       }, 1000);
 
+      // Stop ping/pong mechanism
+      this.stopPingPong();
+      
       // Close active WebSocket connection if exists
       if (this.activeConnection) {
         this.activeConnection.close(1000, "Server shutting down");
@@ -1562,7 +1655,7 @@ export class BrowserConnector {
     this.app.get("/.identity", (req, res) => {
       res.json({
         signature: "mcp-browser-connector-24x7",
-        version: "1.4.1",
+        version: "1.4.2",
       });
     });
 
@@ -1621,6 +1714,68 @@ export class BrowserConnector {
         });
       }
     });
+  }
+
+  // Ping/Pong mechanism for connection health monitoring
+  private startPingPong() {
+    this.stopPingPong(); // Clear any existing intervals
+    
+    console.log("Starting ping/pong mechanism");
+    
+    // Send ping every 30 seconds
+    this.pingInterval = setInterval(() => {
+      if (this.activeConnection && this.activeConnection.readyState === WebSocket.OPEN) {
+        console.log("Sending ping to client");
+        try {
+          this.activeConnection.send(JSON.stringify({
+            type: "ping",
+            timestamp: Date.now()
+          }));
+        } catch (error) {
+          console.error("Error sending ping:", error);
+          this.connectionHealthy = false;
+        }
+      }
+    }, 30000); // 30 second ping interval
+    
+    // Check connection health every 10 seconds
+    this.connectionHealthCheck = setInterval(() => {
+      const timeSinceLastPong = Date.now() - this.lastPongReceived;
+      
+      // If no pong received in 60 seconds, consider connection unhealthy
+      if (timeSinceLastPong > 60000) {
+        console.log("Connection appears unhealthy - no pong received in 60 seconds");
+        this.connectionHealthy = false;
+        
+        // Close the connection if it's been unhealthy for too long
+        if (timeSinceLastPong > 120000 && this.activeConnection) {
+          console.log("Closing unhealthy connection");
+          this.activeConnection.close(1000, "Connection health check failed");
+        }
+      }
+    }, 10000); // 10 second health check interval
+  }
+
+  private stopPingPong() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+    
+    if (this.connectionHealthCheck) {
+      clearInterval(this.connectionHealthCheck);
+      this.connectionHealthCheck = null;
+    }
+    
+    console.log("Stopped ping/pong mechanism");
+  }
+
+  // Enhanced connection health check
+  private isConnectionHealthy(): boolean {
+    return this.connectionHealthy && 
+           this.activeConnection !== null && 
+           this.activeConnection.readyState === WebSocket.OPEN &&
+           (Date.now() - this.lastPongReceived) < 60000; // Received pong within last 60 seconds
   }
 }
 

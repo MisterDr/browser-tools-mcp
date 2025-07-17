@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browser Tools MCP Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 10px 5px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #005a8b;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Browser Tools MCP Test Page</h1>
+        
+        <div class="test-section">
+            <h2>Connection Status</h2>
+            <div id="status" class="status disconnected">Disconnected</div>
+            <button onclick="checkConnection()">Check Connection</button>
+            <button onclick="reconnect()">Reconnect</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Test Buttons</h2>
+            <button id="diamond-btn">Start with a diamond</button>
+            <button onclick="testScript()">Test Script Execution</button>
+            <button onclick="testComplexScript()">Test Complex Script</button>
+            <button onclick="testDOMManipulation()">Test DOM Manipulation</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Navigation Test</h2>
+            <button onclick="changeURL()">Change URL (SPA)</button>
+            <button onclick="refreshPage()">Refresh Page</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Console Log</h2>
+            <div id="log" class="log"></div>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+    </div>
+
+    <!-- Include the Browser Tools Client Library -->
+    <script src="browser-tools-client.js"></script>
+    
+    <script>
+        // Test page functionality
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updateStatus() {
+            const statusDiv = document.getElementById('status');
+            if (window.BrowserToolsClient) {
+                const status = window.BrowserToolsClient.getConnectionStatus();
+                if (status.connected) {
+                    statusDiv.className = 'status connected';
+                    statusDiv.textContent = 'Connected';
+                } else {
+                    statusDiv.className = 'status disconnected';
+                    statusDiv.textContent = `Disconnected (Attempts: ${status.reconnectAttempts})`;
+                }
+            } else {
+                statusDiv.className = 'status disconnected';
+                statusDiv.textContent = 'Library not loaded';
+            }
+        }
+
+        function checkConnection() {
+            updateStatus();
+            log('Connection status checked');
+        }
+
+        function reconnect() {
+            if (window.BrowserToolsClient) {
+                window.BrowserToolsClient.reconnect();
+                log('Reconnection initiated');
+            }
+        }
+
+        function testScript() {
+            try {
+                const result = window.BrowserToolsClient.executeScript('document.title');
+                log(`Script result: ${result}`);
+            } catch (error) {
+                log(`Script error: ${error.message}`);
+            }
+        }
+
+        function testComplexScript() {
+            try {
+                const result = window.BrowserToolsClient.executeScript(`
+                    (() => {
+                        const buttons = document.querySelectorAll('button');
+                        return Array.from(buttons).map(b => b.textContent).slice(0, 3);
+                    })()
+                `);
+                log(`Complex script result: ${JSON.stringify(result)}`);
+            } catch (error) {
+                log(`Complex script error: ${error.message}`);
+            }
+        }
+
+        function testDOMManipulation() {
+            try {
+                const result = window.BrowserToolsClient.executeScript(`
+                    (() => {
+                        const testDiv = document.createElement('div');
+                        testDiv.id = 'test-element';
+                        testDiv.textContent = 'Test element created!';
+                        testDiv.style.color = 'green';
+                        document.body.appendChild(testDiv);
+                        return 'DOM element created successfully';
+                    })()
+                `);
+                log(`DOM manipulation result: ${result}`);
+            } catch (error) {
+                log(`DOM manipulation error: ${error.message}`);
+            }
+        }
+
+        function changeURL() {
+            history.pushState({}, '', '/new-url');
+            log('URL changed to: ' + window.location.href);
+        }
+
+        function refreshPage() {
+            log('Refreshing page...');
+            window.location.reload();
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        // Add click handler for diamond button
+        document.getElementById('diamond-btn').addEventListener('click', function() {
+            log('Diamond button clicked!');
+        });
+
+        // Update status periodically
+        setInterval(updateStatus, 2000);
+
+        // Initial setup
+        document.addEventListener('DOMContentLoaded', function() {
+            log('Test page loaded');
+            updateStatus();
+        });
+
+        // Log when browser tools client is ready
+        setTimeout(() => {
+            if (window.BrowserToolsClient) {
+                log('Browser Tools Client loaded successfully');
+                updateStatus();
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
