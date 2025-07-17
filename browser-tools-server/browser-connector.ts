@@ -475,15 +475,28 @@ app.post("/extension-log", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// Placeholder endpoints - will be updated after BrowserConnector initialization
+let browserConnectorRef: BrowserConnector | null = null;
+
 // Update GET endpoints to use the new function
 app.get("/console-logs", (req, res) => {
-  const truncatedLogs = truncateLogsToQueryLimit(consoleLogs);
-  res.json(truncatedLogs);
+  if (browserConnectorRef) {
+    const logs = browserConnectorRef.getConsoleLogs();
+    res.json(logs);
+  } else {
+    const truncatedLogs = truncateLogsToQueryLimit(consoleLogs);
+    res.json(truncatedLogs);
+  }
 });
 
 app.get("/console-errors", (req, res) => {
-  const truncatedLogs = truncateLogsToQueryLimit(consoleErrors);
-  res.json(truncatedLogs);
+  if (browserConnectorRef) {
+    const errors = browserConnectorRef.getConsoleErrors();
+    res.json(errors);
+  } else {
+    const truncatedLogs = truncateLogsToQueryLimit(consoleErrors);
+    res.json(truncatedLogs);
+  }
 });
 
 app.get("/network-errors", (req, res) => {
@@ -497,12 +510,17 @@ app.get("/network-success", (req, res) => {
 });
 
 app.get("/all-xhr", (req, res) => {
-  // Merge and sort network success and error logs by timestamp
-  const mergedLogs = [...networkSuccess, ...networkErrors].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
-  const truncatedLogs = truncateLogsToQueryLimit(mergedLogs);
-  res.json(truncatedLogs);
+  if (browserConnectorRef) {
+    const networkLogs = browserConnectorRef.getNetworkLogs();
+    res.json(networkLogs);
+  } else {
+    // Merge and sort network success and error logs by timestamp
+    const mergedLogs = [...networkSuccess, ...networkErrors].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    const truncatedLogs = truncateLogsToQueryLimit(mergedLogs);
+    res.json(truncatedLogs);
+  }
 });
 
 // Add new endpoint for selected element
@@ -619,6 +637,10 @@ export class BrowserConnector {
   private connectionHealthy: boolean = false;
   private connectionRetryAttempts: number = 0;
   private maxConnectionRetries: number = 5;
+  private consoleLogs: any[] = [];
+  private consoleErrors: any[] = [];
+  private networkLogs: any[] = [];
+  private maxLogEntries: number = 1000;
 
   constructor(app: express.Application, server: any) {
     this.app = app;
@@ -848,6 +870,18 @@ export class BrowserConnector {
             console.log("Received pong from client");
             this.lastPongReceived = Date.now();
             this.connectionHealthy = true;
+          }
+          // Handle console log messages
+          else if (data.type === "console-log") {
+            console.log("Received console log:", data.level, data.message);
+            // Store console log (implementation depends on storage mechanism)
+            this.handleConsoleLog(data);
+          }
+          // Handle network request messages
+          else if (data.type === "network-request") {
+            console.log("Received network request:", data.method, data.url, data.status);
+            // Store network request (implementation depends on storage mechanism)
+            this.handleNetworkRequest(data);
           } else {
             console.log("Unhandled message type:", data.type);
           }
@@ -1777,6 +1811,71 @@ export class BrowserConnector {
            this.activeConnection.readyState === WebSocket.OPEN &&
            (Date.now() - this.lastPongReceived) < 60000; // Received pong within last 60 seconds
   }
+
+  // Console log handler
+  private handleConsoleLog(data: any): void {
+    const logEntry = {
+      level: data.level,
+      message: data.message,
+      timestamp: data.timestamp,
+      url: data.url
+    };
+
+    if (data.level === 'error') {
+      this.consoleErrors.push(logEntry);
+      if (this.consoleErrors.length > this.maxLogEntries) {
+        this.consoleErrors.shift();
+      }
+    } else {
+      this.consoleLogs.push(logEntry);
+      if (this.consoleLogs.length > this.maxLogEntries) {
+        this.consoleLogs.shift();
+      }
+    }
+  }
+
+  // Network request handler
+  private handleNetworkRequest(data: any): void {
+    const networkEntry = {
+      type: data.type,
+      method: data.method,
+      url: data.url,
+      status: data.status,
+      statusText: data.statusText,
+      duration: data.duration,
+      timestamp: data.timestamp,
+      headers: data.headers,
+      responseType: data.responseType,
+      error: data.error
+    };
+
+    this.networkLogs.push(networkEntry);
+    if (this.networkLogs.length > this.maxLogEntries) {
+      this.networkLogs.shift();
+    }
+  }
+
+  // Get console logs
+  public getConsoleLogs(): any[] {
+    return this.consoleLogs;
+  }
+
+  // Get console errors
+  public getConsoleErrors(): any[] {
+    return this.consoleErrors;
+  }
+
+  // Get network logs
+  public getNetworkLogs(): any[] {
+    return this.networkLogs;
+  }
+
+  // Wipe all logs
+  public wipeLogs(): void {
+    this.consoleLogs = [];
+    this.consoleErrors = [];
+    this.networkLogs = [];
+  }
 }
 
 // Use an async IIFE to allow for async/await in the initial setup
@@ -1848,6 +1947,28 @@ export class BrowserConnector {
 
     // Initialize the browser connector with the existing app AND server
     const browserConnector = new BrowserConnector(app, server);
+    browserConnectorRef = browserConnector;
+
+    // Add HTTP endpoints for BrowserConnector log retrieval
+    app.get("/browser-console-logs", (req, res) => {
+      const logs = browserConnector.getConsoleLogs();
+      res.json(logs);
+    });
+
+    app.get("/browser-console-errors", (req, res) => {
+      const errors = browserConnector.getConsoleErrors();
+      res.json(errors);
+    });
+
+    app.get("/browser-network-logs", (req, res) => {
+      const logs = browserConnector.getNetworkLogs();
+      res.json(logs);
+    });
+
+    app.post("/browser-wipe-logs", (req, res) => {
+      browserConnector.wipeLogs();
+      res.json({ status: "ok", message: "Browser logs cleared successfully" });
+    });
 
     // Handle shutdown gracefully with improved error handling
     process.on("SIGINT", async () => {

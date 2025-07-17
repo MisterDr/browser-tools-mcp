@@ -13,7 +13,7 @@
     HEARTBEAT_INTERVAL: 20000,
     MAX_HEARTBEAT_FAILURES: 3,
     WS_RECONNECT_DELAY: 2000,
-    MAX_RECONNECT_ATTEMPTS: 10,
+    MAX_RECONNECT_ATTEMPTS: 50,
     SCRIPT_TIMEOUT: 15000
   };
 
@@ -24,6 +24,18 @@
   let reconnectAttempts = 0;
   let isConnecting = false;
   let pendingScriptCallbacks = new Map();
+  
+  // Function to get WebSocket instance
+  function getWebSocket() {
+    return ws;
+  }
+  
+  // Console log capture
+  let consoleLogs = [];
+  let consoleErrors = [];
+  let networkLogs = [];
+  let maxLogEntries = 100000;
+  let originalConsole = {};
 
   // Initialize on page load
   if (document.readyState === 'loading') {
@@ -34,6 +46,8 @@
 
   function initializeBrowserTools() {
     console.log('Browser Tools MCP Client: Initializing...');
+    setupConsoleCapture();
+    setupNetworkCapture();
     setupWebSocket();
     setupPageHandlers();
   }
@@ -53,7 +67,7 @@
       ws.onopen = function(event) {
         console.log('Browser Tools: WebSocket connected');
         isConnecting = false;
-        reconnectAttempts = 0;
+        reconnectAttempts = 0; // Reset reconnection attempts on successful connection
         heartbeatFailures = 0;
         startHeartbeat();
         
@@ -75,11 +89,13 @@
         isConnecting = false;
         stopHeartbeat();
         
-        // Auto-reconnect if not intentional
-        if (event.code !== 1000 && reconnectAttempts < CONFIG.MAX_RECONNECT_ATTEMPTS) {
+        // Auto-reconnect unless explicitly closed by client or max attempts reached
+        if (reconnectAttempts < CONFIG.MAX_RECONNECT_ATTEMPTS) {
           reconnectAttempts++;
           console.log(`Browser Tools: Reconnecting... (${reconnectAttempts}/${CONFIG.MAX_RECONNECT_ATTEMPTS})`);
           setTimeout(setupWebSocket, CONFIG.WS_RECONNECT_DELAY);
+        } else {
+          console.log('Browser Tools: Max reconnection attempts reached, stopping reconnection');
         }
       };
 
@@ -120,6 +136,22 @@
 
       case 'get-current-url':
         handleGetCurrentUrl(message);
+        break;
+
+      case 'get-console-logs':
+        handleGetConsoleLogs(message);
+        break;
+
+      case 'get-console-errors':
+        handleGetConsoleErrors(message);
+        break;
+
+      case 'get-network-logs':
+        handleGetNetworkLogs(message);
+        break;
+
+      case 'wipe-logs':
+        handleWipeLogs(message);
         break;
 
       case 'server-shutdown':
@@ -417,6 +449,244 @@
     });
   }
 
+  // Console and Network Capture Functions
+  function setupConsoleCapture() {
+    console.log('Browser Tools: Setting up console capture...');
+    
+    // Store original console methods
+    originalConsole = {
+      log: console.log,
+      info: console.info,
+      warn: console.warn,
+      error: console.error,
+      debug: console.debug,
+      trace: console.trace
+    };
+    
+    // Override console methods
+    console.log = createConsoleWrapper('log', originalConsole.log);
+    console.info = createConsoleWrapper('info', originalConsole.info);
+    console.warn = createConsoleWrapper('warn', originalConsole.warn);
+    console.error = createConsoleWrapper('error', originalConsole.error);
+    console.debug = createConsoleWrapper('debug', originalConsole.debug);
+    console.trace = createConsoleWrapper('trace', originalConsole.trace);
+  }
+  
+  function createConsoleWrapper(level, originalMethod) {
+    return function() {
+      // Call original method
+      originalMethod.apply(console, arguments);
+      
+      // Capture the log
+      const logEntry = {
+        level: level,
+        message: Array.from(arguments).map(arg => 
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+        ).join(' '),
+        timestamp: new Date().toISOString(),
+        url: window.location.href
+      };
+      
+      // Add to appropriate log array
+      if (level === 'error') {
+        consoleErrors.push(logEntry);
+        if (consoleErrors.length > maxLogEntries) {
+          consoleErrors.shift();
+        }
+      } else {
+        consoleLogs.push(logEntry);
+        if (consoleLogs.length > maxLogEntries) {
+          consoleLogs.shift();
+        }
+      }
+      
+      // Send to server if connected
+      const websocket = getWebSocket();
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({
+          type: 'console-log',
+          level: level,
+          message: logEntry.message,
+          timestamp: logEntry.timestamp,
+          url: logEntry.url
+        }));
+      }
+    };
+  }
+  
+  function setupNetworkCapture() {
+    console.log('Browser Tools: Setting up network capture...');
+    
+    // Capture fetch requests
+    const originalFetch = window.fetch;
+    window.fetch = function() {
+      const url = arguments[0];
+      const options = arguments[1] || {};
+      const startTime = Date.now();
+      
+      return originalFetch.apply(this, arguments).then(response => {
+        const endTime = Date.now();
+        const logEntry = {
+          type: 'fetch',
+          method: options.method || 'GET',
+          url: url,
+          status: response.status,
+          statusText: response.statusText,
+          duration: endTime - startTime,
+          timestamp: new Date().toISOString(),
+          headers: Object.fromEntries(response.headers.entries())
+        };
+        
+        networkLogs.push(logEntry);
+        if (networkLogs.length > maxLogEntries) {
+          networkLogs.shift();
+        }
+        
+        // Send to server if connected
+        const websocket = getWebSocket();
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+          websocket.send(JSON.stringify({
+            type: 'network-request',
+            ...logEntry
+          }));
+        }
+        
+        return response;
+      }).catch(error => {
+        const endTime = Date.now();
+        const logEntry = {
+          type: 'fetch',
+          method: options.method || 'GET',
+          url: url,
+          error: error.message,
+          duration: endTime - startTime,
+          timestamp: new Date().toISOString()
+        };
+        
+        networkLogs.push(logEntry);
+        if (networkLogs.length > maxLogEntries) {
+          networkLogs.shift();
+        }
+        
+        // Send to server if connected
+        const websocket = getWebSocket();
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+          websocket.send(JSON.stringify({
+            type: 'network-request',
+            ...logEntry
+          }));
+        }
+        
+        throw error;
+      });
+    };
+    
+    // Capture XMLHttpRequest
+    const originalXMLHttpRequest = window.XMLHttpRequest;
+    window.XMLHttpRequest = function() {
+      const xhr = new originalXMLHttpRequest();
+      const startTime = Date.now();
+      let method, url;
+      
+      const originalOpen = xhr.open;
+      xhr.open = function(m, u) {
+        method = m;
+        url = u;
+        return originalOpen.apply(this, arguments);
+      };
+      
+      const originalSend = xhr.send;
+      xhr.send = function() {
+        const sendTime = Date.now();
+        
+        xhr.addEventListener('loadend', function() {
+          const endTime = Date.now();
+          const logEntry = {
+            type: 'xhr',
+            method: method || 'GET',
+            url: url,
+            status: xhr.status,
+            statusText: xhr.statusText,
+            duration: endTime - sendTime,
+            timestamp: new Date().toISOString(),
+            responseType: xhr.responseType
+          };
+          
+          networkLogs.push(logEntry);
+          if (networkLogs.length > maxLogEntries) {
+            networkLogs.shift();
+          }
+          
+          // Send to server if connected
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'network-request',
+              ...logEntry
+            }));
+          }
+        });
+        
+        return originalSend.apply(this, arguments);
+      };
+      
+      return xhr;
+    };
+  }
+  
+  // Message Handlers for Log Retrieval
+  function handleGetConsoleLogs(message) {
+    console.log('Browser Tools: Get console logs request');
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'console-logs-response',
+        logs: consoleLogs,
+        requestId: message.requestId
+      }));
+    }
+  }
+  
+  function handleGetConsoleErrors(message) {
+    console.log('Browser Tools: Get console errors request');
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'console-errors-response',
+        errors: consoleErrors,
+        requestId: message.requestId
+      }));
+    }
+  }
+  
+  function handleGetNetworkLogs(message) {
+    console.log('Browser Tools: Get network logs request');
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'network-logs-response',
+        logs: networkLogs,
+        requestId: message.requestId
+      }));
+    }
+  }
+  
+  function handleWipeLogs(message) {
+    console.log('Browser Tools: Wipe logs request');
+    
+    // Clear all log arrays
+    consoleLogs = [];
+    consoleErrors = [];
+    networkLogs = [];
+    
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'wipe-logs-response',
+        success: true,
+        requestId: message.requestId
+      }));
+    }
+  }
+
   // Expose global interface for debugging
   window.BrowserToolsClient = {
     getConnectionStatus: function() {
@@ -428,14 +698,35 @@
     },
     
     reconnect: function() {
+      console.log('Browser Tools: Manual reconnection requested');
+      reconnectAttempts = 0; // Reset attempts for manual reconnection
       if (ws) {
         ws.close();
       }
-      setupWebSocket();
+      setTimeout(setupWebSocket, 100); // Short delay to allow clean close
     },
     
     executeScript: function(script) {
       return executeScriptSafely(script);
+    },
+    
+    // Log access methods
+    getConsoleLogs: function() {
+      return consoleLogs;
+    },
+    
+    getConsoleErrors: function() {
+      return consoleErrors;
+    },
+    
+    getNetworkLogs: function() {
+      return networkLogs;
+    },
+    
+    wipeLogs: function() {
+      consoleLogs = [];
+      consoleErrors = [];
+      networkLogs = [];
     }
   };
 
